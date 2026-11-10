@@ -1,0 +1,16 @@
+node_modules
+dist
+*.log
+.DS_Store
+
+# Fotos originais (o site usa as versões otimizadas em public/assets)
+/fotoespecial.jpg
+/minhafotosemfundo.PNG
+/fundodebannersemminhafoto.PNG
+# Imagens antigas que o site não usa (ficam só no computador)
+/public/assets/banner.png
+/public/assets/hero-cinematic.jpg
+/public/assets/profile-casual.jpg
+/public/assets/profile-suit.jpg
+/public/assets/reference-layout.jpg
+/src/assets/hero-cinematic.jpg
