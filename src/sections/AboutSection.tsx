@@ -32,7 +32,7 @@ export const AboutSection: React.FC = () => (
           <div data-spotlight className="glass spotlight h-full rounded-[1.75rem] p-7 sm:p-10">
             <div className="relative z-[1] space-y-5 text-[17px] leading-[1.8] text-ink-muted">
               {personalInfo.fullBio.map((p, i) => (
-                <p key={i} className={`text-pretty ${i === 0 ? 'text-lg text-ink sm:text-xl sm:leading-[1.7]' : ''}`}>
+                <p key={i} className={`text-pretty text-ink ${i === 0 ? 'text-lg sm:text-xl sm:leading-[1.7]' : ''}`}>
                   {p}
                 </p>
               ))}

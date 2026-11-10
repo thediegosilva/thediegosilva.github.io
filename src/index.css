@@ -166,12 +166,13 @@
     mask-composite: exclude;
     opacity: 0;
     transition: opacity 0.5s var(--ease);
-    animation: spin-angle 6s linear infinite;
+    animation: spin-angle 6s linear infinite paused;
     pointer-events: none;
   }
   .glow-border:hover::before,
   .glow-border-on::before {
     opacity: 1;
+    animation-play-state: running;
   }
 
   /* Brilho que segue o cursor dentro do elemento ([data-spotlight]) */
@@ -914,6 +915,92 @@
   }
   .split-word-inner {
     transform: none;
+  }
+}
+
+/* ==========================================================================
+   Modo leve — celulares e tablets (telas de toque)
+   Remove o que mais custa para a GPU/CPU de aparelhos Android ao rolar:
+   desfoque de vidro, misturas de cor em tela cheia, animações que repintam
+   a cada quadro e desfoque nas entradas. O visual geral continua o mesmo.
+   ========================================================================== */
+@media (hover: none) {
+  /* Vidro: sem backdrop-filter (o maior vilão ao rolar), fundo mais sólido */
+  *,
+  *::before,
+  *::after {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  .glass {
+    background: linear-gradient(180deg, rgba(22, 22, 36, 0.88), rgba(12, 12, 20, 0.86));
+  }
+  .eyebrow,
+  .icon-btn {
+    background-color: rgba(18, 18, 30, 0.75);
+  }
+
+  /* Fundo fixo: aurora sem blur gigante, sem ruído, sem brilho de cursor, sem cometas */
+  .aurora {
+    filter: none;
+    will-change: auto;
+    animation: none;
+  }
+  .grid-floor {
+    animation: none;
+  }
+  .noise,
+  .cursor-glow,
+  .comet {
+    display: none;
+  }
+
+  /* Animações que repintam a cada quadro: congeladas */
+  .text-gradient,
+  .btn-primary {
+    animation: none;
+  }
+  .hero-breath {
+    mix-blend-mode: normal;
+    animation: none;
+  }
+  .hero-ember:nth-child(2n),
+  .hero-beam:nth-child(3n) {
+    display: none;
+  }
+  .hero-ember {
+    box-shadow: 0 0 6px rgb(var(--c));
+  }
+
+  /* Entradas: só opacidade + movimento (sem desfoque) */
+  [data-reveal] {
+    filter: none;
+    transform: translate3d(0, 24px, 0);
+    transition:
+      opacity 0.7s var(--ease),
+      transform 0.8s var(--ease);
+    transition-delay: var(--delay, 0ms);
+  }
+  [data-reveal].is-visible {
+    transform: none;
+  }
+  .reveal-now {
+    animation-name: hero-in-lite;
+  }
+  .split-char {
+    animation-name: char-rise-lite;
+  }
+}
+@keyframes hero-in-lite {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 40px, 0);
+  }
+}
+@keyframes char-rise-lite {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.5em, 0);
   }
 }
 

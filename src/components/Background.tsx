@@ -16,6 +16,11 @@ export const Background: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Em telas de toque o canvas fica desligado (economiza CPU/bateria ao rolar)
+    if (window.matchMedia('(hover: none)').matches) {
+      canvas.style.display = 'none';
+      return;
+    }
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     let w = 0;
