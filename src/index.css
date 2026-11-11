@@ -1283,3 +1283,130 @@
   .pato__body, .pato-btn, .pato-box.is-shaking, .pato-food.is-on, .pato__prop, .pato__shout.is-on, .pato.is-limp .pato__sprite { animation: none !important; }
   .pato-food.is-on { opacity: 1; }
 }
+
+/* =========================================================
+   MINIGAME DO PATO (só existe enquanto o jogo está aberto)
+   ========================================================= */
+.duck-game {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  background: rgb(6 3 14 / 0.35);
+  animation: duck-game-in 0.45s ease both;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+@keyframes duck-game-in { from { opacity: 0; } }
+.duck-game__canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-action: none; }
+.duck-game__exit {
+  position: fixed;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 2;
+  padding: 10px 16px;
+  border: 2px solid #ff3b5c;
+  border-radius: 10px;
+  background: rgb(20 7 13 / 0.85);
+  color: #ffd0d8;
+  font: 700 12px/1 'JetBrains Mono', monospace;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgb(255 59 92 / 0.15), 0 8px 24px -8px rgb(255 59 92 / 0.8);
+}
+.duck-game__exit:hover, .duck-game__exit:focus-visible { background: #ff3b5c; color: #fff; outline: none; }
+.duck-game__hint {
+  position: fixed;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  left: max(14px, env(safe-area-inset-left));
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.45);
+  color: rgb(255 255 255 / 0.75);
+  font: 600 11px/1.3 'JetBrains Mono', monospace;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: duck-hint 6s ease forwards;
+}
+@keyframes duck-hint { 0%, 75% { opacity: 1; } 100% { opacity: 0; } }
+.duck-game__end {
+  position: fixed;
+  z-index: 3;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 26px 28px;
+  border-radius: 18px;
+  border: 2px solid #ffd23f;
+  background: rgb(14 8 28 / 0.92);
+  box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.8);
+  text-align: center;
+  color: #fff;
+  font-family: 'JetBrains Mono', monospace;
+}
+.duck-game__end[hidden] { display: none; }
+.duck-game__end[data-result='derrota'] { border-color: #ff3b5c; }
+.duck-game__title { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: 0.08em; color: #ffd23f; text-shadow: 3px 3px 0 #140c24; }
+.duck-game__end[data-result='derrota'] .duck-game__title { color: #ff3b5c; }
+.duck-game__sub { margin: 0; font-size: 13px; color: rgb(255 255 255 / 0.85); }
+.duck-game__stats { margin: 0; font-size: 12px; color: #7ee0ff; }
+.duck-game__actions { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; justify-content: center; }
+.duck-game__actions button {
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 2px solid #ffd23f;
+  background: transparent;
+  color: #ffe58a;
+  font: 700 12px/1 'JetBrains Mono', monospace;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.duck-game__actions button:hover, .duck-game__actions button:focus-visible { background: #ffd23f; color: #140c24; outline: none; }
+.duck-game__actions [data-leave] { border-color: rgb(255 255 255 / 0.4); color: #fff; }
+
+/* escalada de raiva do pato (cliques 1 a 6) */
+.pato.is-angry-2 .pato__sprite { filter: drop-shadow(0 4px 6px rgb(0 0 0 / 0.35)) sepia(0.4) saturate(2.4) hue-rotate(-20deg); }
+.pato.is-angry-3 .pato__sprite, .pato.is-angry-4 .pato__sprite { filter: drop-shadow(0 0 6px #ff3b5c) sepia(0.6) saturate(3) hue-rotate(-30deg); animation: pato-rage 0.08s linear infinite; }
+.pato.is-angry-5 .pato__sprite, .pato.is-angry-6 .pato__sprite { filter: drop-shadow(0 0 12px #ff3b5c) drop-shadow(0 0 22px #ff3b5c) sepia(0.8) saturate(4) hue-rotate(-35deg); animation: pato-rage 0.05s linear infinite; }
+.pato.is-angry-5 .pato__body::after, .pato.is-angry-6 .pato__body::after {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(255 59 92 / 0.45), transparent 65%);
+  animation: pato-alarm 0.5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes pato-rage { 25% { translate: -2px 1px; } 50% { translate: 2px -1px; } 75% { translate: -1px -2px; } }
+@keyframes pato-alarm { 50% { opacity: 0.2; scale: 1.25; } }
+html.pato-quake #root { animation: pato-quake 0.08s linear 8; }
+@keyframes pato-quake { 25% { translate: -6px 3px; } 50% { translate: 5px -4px; } 75% { translate: -3px -5px; } }
+.pato-layer.is-hidden { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .pato.is-angry-3 .pato__sprite, .pato.is-angry-4 .pato__sprite, .pato.is-angry-5 .pato__sprite, .pato.is-angry-6 .pato__sprite,
+  .pato.is-angry-5 .pato__body::after, .pato.is-angry-6 .pato__body::after, html.pato-quake #root, .duck-game, .duck-game__hint { animation: none !important; }
+}
+
+.duck-game__rotate { display: none; }
+@media (orientation: portrait) and (max-width: 767px) {
+  .duck-game__hint { bottom: max(76px, calc(env(safe-area-inset-bottom) + 64px)); left: 50%; translate: -50% 0; }
+  .duck-game__rotate {
+    display: block;
+    position: fixed;
+    top: max(18px, env(safe-area-inset-top));
+    left: 50%;
+    translate: -50% 0;
+    margin: 0;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: rgb(255 210 63 / 0.15);
+    border: 1px solid rgb(255 210 63 / 0.5);
+    color: #ffe58a;
+    font: 700 12px/1 'JetBrains Mono', monospace;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+}

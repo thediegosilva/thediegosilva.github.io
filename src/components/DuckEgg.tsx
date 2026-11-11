@@ -4,6 +4,23 @@ import { duckLines, duckSpots, lineAct, lineText, type DuckAction, type DuckLine
 import { DUCK_ANIMS, DUCK_CELL, DUCK_PROPS, DUCK_SHEET, PROP_CELL, type DuckProp } from '../data/duckSprites';
 
 const SPRITE_URL = `${import.meta.env.BASE_URL}assets/pato/pato-sprites.png`;
+type GameResult = 'vitoria' | 'derrota' | 'saiu';
+
+/** escalada de raiva: 7 cliques no pato abrem o minigame */
+const RAGE: DuckLine[] = [
+  'Ei! Sem encostar no pato!',
+  'Para. Agora.',
+  'Tô ficando nervoso… muito nervoso.',
+  '⚠ Último aviso de verdade.',
+  'Você não sabe com quem tá mexendo.',
+  'VOCÊ PEDIU.',
+  'PREPARE-SE PRA BATALHA!',
+];
+const AFTER_GAME: Record<GameResult, DuckLine[]> = {
+  vitoria: ['Ganhou de mim? Foi sorte. SORTE.', 'Tá. Você venceu. Não conta pra ninguém.'],
+  derrota: ['Hahaha! Perdeu pro pato. Quack.', 'Volte quando souber pilotar.'],
+  saiu: ['Fugiu, é? Covarde. Eu tava ganhando.', 'Apertou ESC? Clássico.'],
+};
 const PROPS_URL = `${import.meta.env.BASE_URL}assets/pato/pato-props.png`;
 
 /**
@@ -97,20 +114,27 @@ interface LayerProps {
   firstLine: DuckLine;
   boxRef: React.RefObject<HTMLDivElement>;
   onHome: () => void;
+  onStartGame: () => void;
+  gameOn: boolean;
+  gameResult: { r: GameResult; n: number } | null;
 }
 
 type Mode = 'follow' | 'wander' | 'visit' | 'dodge' | 'food' | 'home';
 
-const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome }) => {
+const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome, onStartGame, gameOn, gameResult }) => {
   const duckRef = useRef<HTMLDivElement>(null);
   const spriteRef = useRef<HTMLDivElement>(null);
   const propRef = useRef<HTMLDivElement>(null);
   const shoutRef = useRef<HTMLDivElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const foodRef = useRef<HTMLDivElement>(null);
-  const engine = useRef<{ feed: () => void; poke: () => void } | null>(null);
+  const engine = useRef<{ feed: () => void; poke: () => void; afterGame: (r: GameResult) => void } | null>(null);
   const onHomeRef = useRef(onHome);
   onHomeRef.current = onHome;
+  const onStartGameRef = useRef(onStartGame);
+  onStartGameRef.current = onStartGame;
+  const gameOnRef = useRef(gameOn);
+  gameOnRef.current = gameOn;
 
   useEffect(() => {
     const duck = duckRef.current!;
@@ -147,6 +171,10 @@ const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome }) =
       blinkAt: performance.now() + 2500,
       act: null as null | { id: DuckAction; t0: number; until: number; anchor?: { x: number; y: number } },
       propKey: '',
+      pokes: 0,
+      pokeAt: 0,
+      starting: false,
+      dodgeReadyAt: 0,
     };
 
     /* ---------- fala (+ ação) ---------- */
@@ -430,19 +458,34 @@ const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome }) =
         say(pick(duckLines.food));
       },
       poke() {
-        if (s.stage !== 'free') return;
+        if (s.stage !== 'free' || gameOnRef.current || s.starting) return;
         const now = performance.now();
         s.act = null;
-        say(pick(duckLines.poked));
-        const ang = Math.random() * Math.PI * 2;
-        s.mode = 'dodge';
-        s.target = {
-          x: Math.min(window.innerWidth - 60, Math.max(60, s.x + Math.cos(ang) * 240)),
-          y: Math.min(window.innerHeight - 70, Math.max(100, s.y + Math.sin(ang) * 200)),
-        };
-        s.modeUntil = now + 1400;
-        duck.classList.add('is-poked');
+        // escalada de raiva: a partir do 1º clique ele para de fugir; no 7º, abre o jogo
+        if (now - s.pokeAt > 4000) s.pokes = 0;
+        s.pokes += 1;
+        s.pokeAt = now;
+        say(RAGE[Math.min(s.pokes, RAGE.length) - 1]);
+        for (let i = 1; i <= 7; i++) duck.classList.remove(`is-angry-${i}`);
+        duck.classList.add(`is-angry-${Math.min(s.pokes, 6)}`, 'is-poked');
         setTimeout(() => duck.classList.remove('is-poked'), 400);
+        if (s.pokes === 6) {
+          document.documentElement.classList.add('pato-quake');
+          setTimeout(() => document.documentElement.classList.remove('pato-quake'), 700);
+        }
+        if (s.pokes >= 7) {
+          s.pokes = 0;
+          s.starting = true; // ignora toques enquanto o jogo carrega
+          for (let i = 1; i <= 7; i++) duck.classList.remove(`is-angry-${i}`);
+          setTimeout(() => onStartGameRef.current(), 450);
+        }
+      },
+      afterGame(r) {
+        s.pokes = 0;
+        s.starting = false;
+        for (let i = 1; i <= 7; i++) duck.classList.remove(`is-angry-${i}`);
+        s.lastMove = performance.now();
+        say(pick(AFTER_GAME[r]));
       },
     };
 
@@ -459,22 +502,30 @@ const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome }) =
     let last = performance.now();
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const dt = Math.min(48, now - last) / 16.67;
+      // o 1º quadro pode vir com horário anterior ao da criação: nunca deixa o passo ficar negativo
+      const dt = Math.max(0, Math.min(48, now - last)) / 16.67;
       last = now;
-      if (s.stage === 'done') return;
+      if (s.stage === 'done' || gameOnRef.current) return;
+      const angry = s.pokes > 0 && now - s.pokeAt < 4000;
+      if (s.pokes > 0 && !angry) {
+        s.pokes = 0;
+        for (let i = 1; i <= 7; i++) duck.classList.remove(`is-angry-${i}`);
+      }
 
       // ação atual (some quando acaba o tempo)
       if (s.act && now > s.act.until) s.act = null;
       let af = actFrame(now);
       if (s.act && !af) s.act = null; // ação sem onde acontecer (ex.: seção fora da tela)
+      if (angry) af = { hold: true, noPersonal: true, dir: DIR.S, col: s.pokes >= 4 ? DUCK_ANIMS.loud[0] : DUCK_ANIMS.cross[0], hop: s.pokes >= 3 ? Math.sin(now / 30) * 1.5 : 0 };
 
-      if (s.stage === 'free' && !s.act && now > s.modeUntil) chooseMode();
+      if (s.stage === 'free' && !s.act && !angry && now > s.modeUntil) chooseMode();
       if (s.mode === 'wander' && Math.hypot(s.target.x - s.x, s.target.y - s.y) < 12 && s.stage === 'free') s.target = randomPoint();
 
       let t = af?.target ?? (af?.hold ? { x: s.x, y: s.y } : baseTarget());
 
       // espaço pessoal: se o cursor chega perto, o pato se afasta (nunca fica embaixo do ponteiro)
-      if (s.pointer && s.stage === 'free' && !af?.noPersonal) {
+      // depois de fugir, ele fica 2,5 s sem fugir de novo: quem persegue consegue pegá-lo
+      if (s.pointer && s.stage === 'free' && !af?.noPersonal && now > s.dodgeReadyAt) {
         const px = s.x - s.pointer.x;
         const py = s.y - s.pointer.y;
         const pd = Math.hypot(px, py) || 1;
@@ -488,6 +539,7 @@ const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome }) =
           s.act = null;
           af = null;
           if (s.mode !== 'dodge') {
+            s.dodgeReadyAt = now + 900 + 2500;
             s.mode = 'dodge';
             s.target = t;
             s.modeUntil = now + 900;
@@ -500,7 +552,7 @@ const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome }) =
       let nvy = (t.y - s.y) * k;
       const max = (s.mode === 'dodge' || s.mode === 'home' ? 22 : 12) * dt * Math.max(1, af?.speedMult ?? 1);
       const sp = Math.hypot(nvx, nvy);
-      if (sp > max) {
+      if (sp > max && sp > 0) {
         nvx = (nvx / sp) * max;
         nvy = (nvy / sp) * max;
       }
@@ -553,7 +605,7 @@ const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome }) =
       if (now > s.bubbleUntil) bubble.classList.remove('is-on');
 
       // falas periódicas
-      if (s.stage === 'free' && !s.act && now > s.nextLine) {
+      if (s.stage === 'free' && !s.act && !angry && now > s.nextLine) {
         const pool =
           s.mode === 'follow' ? (Math.random() < 0.65 ? duckLines.cursor : duckLines.viewer)
           : Math.random() < 0.15 ? duckLines.extra
@@ -623,8 +675,12 @@ const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome }) =
     if (phase === 'feeding') engine.current?.feed();
   }, [phase]);
 
+  useEffect(() => {
+    if (gameResult) engine.current?.afterGame(gameResult.r);
+  }, [gameResult]);
+
   return (
-    <div aria-hidden className="pato-layer">
+    <div aria-hidden className={`pato-layer ${gameOn ? 'is-hidden' : ''}`}>
       <div ref={foodRef} className="pato-food">🌽</div>
       <div ref={bubbleRef} className="pato-bubble" />
       <div
@@ -654,7 +710,35 @@ export const DuckEgg: React.FC = () => {
   const [firstLine, setFirstLine] = useState<DuckLine>('');
   const [mounted, setMounted] = useState(false);
   const [status, setStatus] = useState('');
+  const [gameOn, setGameOn] = useState(false);
+  const [gameResult, setGameResult] = useState<{ r: GameResult; n: number } | null>(null);
+  const stopGame = useRef<(() => void) | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+
+  // o jogo (duck-game.js) só é baixado aqui, no 7º clique
+  const startGame = useCallback(() => {
+    if (stopGame.current) return;
+    setGameOn(true);
+    setStatus('Minigame aberto. Aperte Escape para sair.');
+    import('../game/duck-game.js')
+      .then(({ startDuckGame }) => {
+        stopGame.current = startDuckGame({
+          duckSpriteUrl: SPRITE_URL,
+          onExit: (r) => {
+            stopGame.current = null;
+            setGameOn(false);
+            setGameResult({ r, n: Date.now() });
+            setStatus('Minigame encerrado.');
+          },
+        });
+      })
+      .catch(() => {
+        // sem internet / falha ao baixar o jogo: o pato volta ao normal
+        setGameOn(false);
+        setGameResult({ r: 'saiu', n: Date.now() });
+      });
+  }, []);
+  useEffect(() => () => stopGame.current?.(), []);
 
   // se a página foi recarregada com o pato solto, ele volta ("não adianta, eu volto")
   useEffect(() => {
@@ -698,11 +782,11 @@ export const DuckEgg: React.FC = () => {
       <div ref={boxRef} className={`pato-box ${phase === 'opening' ? 'is-shaking' : ''} ${phase === 'closing' ? 'is-gulp' : ''}`}>
         <BoxSvg open={lidOpen} />
       </div>
-      <button type="button" onClick={free ? capture : release} disabled={busy} className={`pato-btn ${free ? 'pato-btn--catch' : ''}`}>
+      <button type="button" onClick={free ? capture : release} disabled={busy || gameOn} className={`pato-btn ${free ? 'pato-btn--catch' : ''}`}>
         {free ? (phase === 'feeding' ? 'Servindo milho…' : 'Aperte para prender o pato') : 'Não aperte esse botão!'}
       </button>
       <p className="sr-only" role="status" aria-live="polite">{status}</p>
-      {mounted && free && createPortal(<DuckLayer phase={phase} firstLine={firstLine} boxRef={boxRef} onHome={onHome} />, document.body)}
+      {mounted && free && createPortal(<DuckLayer phase={phase} firstLine={firstLine} boxRef={boxRef} onHome={onHome} onStartGame={startGame} gameOn={gameOn} gameResult={gameResult} />, document.body)}
     </div>
   );
 };
