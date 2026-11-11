@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowUp } from 'lucide-react';
 import { personalInfo, whatsappUrl } from '../data/portfolioData';
+import { DuckEgg } from './DuckEgg';
 
 export const Footer: React.FC = () => (
   <footer className="relative overflow-hidden border-t border-white/[0.06]">
@@ -19,6 +20,8 @@ export const Footer: React.FC = () => (
       >
         {personalInfo.name}
       </p>
+      {/* Easter egg: Pato Vírus */}
+      <DuckEgg />
       <div className="flex flex-col items-center justify-between gap-6 border-t border-white/[0.06] py-8 text-sm text-ink-subtle sm:flex-row">
         <p>
           © {new Date().getFullYear()} {personalInfo.name}. Todos os direitos reservados.
