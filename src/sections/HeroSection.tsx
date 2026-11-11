@@ -40,8 +40,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenPdf }) => {
       <img
         src="./assets/portrait.webp"
         alt={`Foto de ${personalInfo.name}`}
-        width={977}
-        height={869}
+        width={1053}
+        height={1000}
         className="hero-portrait mask-portrait pointer-events-none absolute -z-10 select-none w-auto max-w-none
           left-1/2 top-[var(--nav-h)] -ml-[calc(var(--ph)*0.53)] h-[var(--ph)]
           wide:left-auto wide:top-auto wide:bottom-0 wide:right-[-6%] wide:ml-0 wide:h-[min(68svh,58vw)]
