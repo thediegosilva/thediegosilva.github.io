@@ -486,6 +486,7 @@ const DuckLayer: React.FC<LayerProps> = ({ phase, firstLine, boxRef, onHome, onS
         for (let i = 1; i <= 7; i++) duck.classList.remove(`is-angry-${i}`);
         s.lastMove = performance.now();
         say(pick(AFTER_GAME[r]));
+        s.modeUntil = performance.now() + 4500; // deixa o comentário do resultado aparecer
       },
     };
 
