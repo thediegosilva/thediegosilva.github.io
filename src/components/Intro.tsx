@@ -9,7 +9,9 @@ const DURATION = 1250; // contagem 0 -> 100 (ms); as metades se abrem logo depoi
  * Clique em qualquer lugar para pular.
  */
 export const Intro: React.FC = () => {
-  const [visible, setVisible] = useState(() => document.documentElement.classList.contains('has-intro'));
+  const [visible, setVisible] = useState(
+    () => typeof document !== 'undefined' && document.documentElement.classList.contains('has-intro'),
+  );
   const counterRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {

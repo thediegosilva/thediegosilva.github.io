@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://thediegosilva.github.io/sitemap.xml

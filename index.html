@@ -3,21 +3,103 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Diego Silva — Desenvolvedor Full-Stack</title>
+    <title>Diego Silva — Desenvolvedor Full-Stack | Criação de Sites e Sistemas Web</title>
     <meta
       name="description"
-      content="Portfólio de Diego Silva, desenvolvedor full-stack. Projetos em React, Next.js, Node.js, TypeScript e PostgreSQL."
+      content="Diego Silva, desenvolvedor full-stack no Rio de Janeiro. Criação de sites profissionais, lojas virtuais, sistemas web e automações para empresas e autônomos. Atendimento em todo o Brasil — orçamento pelo WhatsApp."
     />
+    <meta name="author" content="Diego Silva" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://thediegosilva.github.io/" />
     <meta name="theme-color" content="#06080c" />
     <meta name="color-scheme" content="dark" />
 
     <!-- Open Graph (pré-visualização ao compartilhar o link) -->
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Diego Silva — Desenvolvedor Full-Stack" />
-    <meta property="og:description" content="Projetos, stack e contato de Diego Silva." />
-    <meta property="og:image" content="./assets/hero-banner.webp" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:site_name" content="Diego Silva" />
+    <meta property="og:url" content="https://thediegosilva.github.io/" />
+    <meta property="og:title" content="Diego Silva — Desenvolvedor Full-Stack | Criação de Sites e Sistemas Web" />
+    <meta property="og:description" content="Criação de sites, lojas virtuais e sistemas web sob medida. Veja projetos, tecnologias e fale comigo pelo WhatsApp." />
+    <meta property="og:image" content="https://thediegosilva.github.io/assets/og-image.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Diego Silva, desenvolvedor full-stack" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Diego Silva — Desenvolvedor Full-Stack | Criação de Sites e Sistemas Web" />
+    <meta name="twitter:description" content="Criação de sites, lojas virtuais e sistemas web sob medida." />
+    <meta name="twitter:image" content="https://thediegosilva.github.io/assets/og-image.jpg" />
 
-    <link rel="icon" type="image/jpeg" href="./assets/logo.jpg" />
+    <link rel="icon" type="image/png" sizes="48x48" href="./assets/favicon-48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="./assets/favicon-96.png" />
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
+
+    <!-- Dados estruturados: dizem ao Google quem você é e quais serviços oferece -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://thediegosilva.github.io/#website",
+            "url": "https://thediegosilva.github.io/",
+            "name": "Diego Silva",
+            "inLanguage": "pt-BR",
+            "publisher": { "@id": "https://thediegosilva.github.io/#diego" }
+          },
+          {
+            "@type": "Person",
+            "@id": "https://thediegosilva.github.io/#diego",
+            "name": "Diego Silva",
+            "jobTitle": "Desenvolvedor Full-Stack",
+            "url": "https://thediegosilva.github.io/",
+            "image": "https://thediegosilva.github.io/assets/portrait.webp",
+            "email": "mailto:thediegosilva@engineer.com",
+            "telephone": "+55-21-98913-9942",
+            "address": { "@type": "PostalAddress", "addressLocality": "Rio de Janeiro", "addressRegion": "RJ", "addressCountry": "BR" },
+            "knowsAbout": ["Criação de sites", "Desenvolvimento web", "Lojas virtuais", "Sistemas web", "React", "TypeScript", "Node.js", "Python", "PostgreSQL", "Docker", "Linux", "Automação"],
+            "sameAs": ["https://github.com/thediegosilva", "https://www.linkedin.com/in/thediegosilva"]
+          },
+          {
+            "@type": "ProfessionalService",
+            "@id": "https://thediegosilva.github.io/#servicos",
+            "name": "Diego Silva — Criação de Sites e Sistemas Web",
+            "url": "https://thediegosilva.github.io/",
+            "image": "https://thediegosilva.github.io/assets/og-image.jpg",
+            "logo": "https://thediegosilva.github.io/assets/logo.jpg",
+            "description": "Criação de sites profissionais, lojas virtuais, sistemas web, banco de dados, soluções em nuvem e automações para empresas e autônomos.",
+            "founder": { "@id": "https://thediegosilva.github.io/#diego" },
+            "email": "thediegosilva@engineer.com",
+            "telephone": "+55-21-98913-9942",
+            "address": { "@type": "PostalAddress", "addressLocality": "Rio de Janeiro", "addressRegion": "RJ", "addressCountry": "BR" },
+            "areaServed": [
+              { "@type": "City", "name": "Rio de Janeiro" },
+              { "@type": "State", "name": "Rio de Janeiro" },
+              { "@type": "Country", "name": "Brasil" }
+            ],
+            "availableLanguage": "pt-BR",
+            "sameAs": ["https://github.com/thediegosilva", "https://www.linkedin.com/in/thediegosilva"],
+            "hasOfferCatalog": {
+              "@type": "OfferCatalog",
+              "name": "Serviços",
+              "itemListElement": [
+                { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Criação de sites", "description": "Sites responsivos, rápidos e modernos para empresas e profissionais." } },
+                { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Lojas virtuais (e-commerce)", "description": "Vitrine de produtos, carrinho e finalização de compra." } },
+                { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Aplicações web e mobile", "description": "Sistemas sob medida, como CRMs, painéis e áreas de cliente." } },
+                { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Banco de dados", "description": "Modelagem eficiente e integrações seguras." } },
+                { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Soluções em nuvem", "description": "Deploy escalável e boas práticas DevOps." } },
+                { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Automação e scripts", "description": "Otimização de tarefas e rotinas do dia a dia." } }
+              ]
+            }
+          }
+        ]
+      }
+    </script>
+
+    <!-- HTML pré-renderizado (para buscadores) fica oculto até o app carregar; sem JavaScript, aparece -->
+    <style>#root[data-ssr]{visibility:hidden}</style>
+    <noscript><style>#root[data-ssr]{visibility:visible}</style></noscript>
 
     <!-- Pré-carrega os assets do topo para o primeiro paint -->
     <link rel="preload" as="image" href="./assets/portrait.webp" type="image/webp" />
@@ -40,7 +122,6 @@
       } catch (e) {}
     </script>
     <div id="root"></div>
-    <noscript>Este site precisa de JavaScript habilitado.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
