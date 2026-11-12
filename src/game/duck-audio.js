@@ -6,8 +6,11 @@
  *    "lookahead" no relógio do AudioContext: sem setInterval/setTimeout.
  *  - Canais estilo console 8-bit: 2 pulsos (melodia/harmonia), triângulo (baixo),
  *    pulso fino (arpejo) e ruído (bateria).
- *  - Música: uma faixa (`musicUrl`, tocada em loop, recomeça sempre que acaba).
- *    Se a faixa não carregar, entra a trilha 8-bit sintetizada, que ganha camadas a cada fase.
+ *  - Música: uma faixa por fase (`musicUrls[0]` = fase 1, `[1]` = 2º chefe, `[2]` = 3º chefe),
+ *    cada uma em loop; ao trocar de fase a faixa atual some num fade e a nova começa do início
+ *    (se duas fases usam a mesma URL, a música só continua).
+ *    Fase sem faixa (ou que não carregou) usa a da fase anterior; se nenhuma carregar,
+ *    entra a trilha 8-bit sintetizada, que ganha camadas a cada fase.
  *  - Cada arma tem um som próprio (nave, ovos do mecha, laser do pato, olhos-laser,
  *    esferas do núcleo, bolhas da piranha, faíscas do drone...).
  */
@@ -70,7 +73,7 @@ function pulseWave(ctx, duty) {
   return ctx.createPeriodicWave(real, imag);
 }
 
-export function createDuckAudio({ muted = false, musicUrl = null } = {}) {
+export function createDuckAudio({ muted = false, musicUrls = [] } = {}) {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return null;
   let ctx;
@@ -148,35 +151,79 @@ export function createDuckAudio({ muted = false, musicUrl = null } = {}) {
   }
 
   /* ---------- música em arquivo (stream pelo <audio>, sem decodificar tudo na memória) ---------- */
-  let track = null;
-  let useTrack = false;
-  if (musicUrl) {
+  // uma faixa por fase; cada uma com seu ganho para trocar com crossfade
+  const byUrl = new Map(); // mesma URL em duas fases = mesma faixa (continua tocando sem recomeçar)
+  const tracks = musicUrls.map((url) => {
+    if (!url) return null;
+    if (byUrl.has(url)) return byUrl.get(url);
     try {
-      track = new Audio();
-      track.preload = 'auto';
-      track.loop = true; // acabou, recomeça do início
-      track.src = musicUrl;
-      ctx.createMediaElementSource(track).connect(musicBus); // passa pelo mudo e pelo compressor
-      useTrack = true;
-      track.addEventListener('error', () => {
-        // não carregou: volta para a trilha sintetizada
-        useTrack = false;
-        if (wantMusic) startSynth();
+      const el = new Audio();
+      el.preload = 'auto'; // as dos chefes já baixam no início, para a troca de fase não engasgar
+      el.loop = true; // acabou, recomeça do início
+      el.src = url;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      ctx.createMediaElementSource(el).connect(gain).connect(musicBus); // passa pelo mudo e pelo compressor
+      const tr = { el, gain, ok: true };
+      el.addEventListener('error', () => {
+        tr.ok = false;
+        if (tr === track) pickTrack(); // não carregou: cai para a faixa anterior ou para a sintetizada
       });
+      byUrl.set(url, tr);
+      return tr;
     } catch {
-      track = null;
+      return null;
     }
-  }
+  });
+  let track = null; // faixa tocando agora
+  let useTrack = tracks.some(Boolean);
   let wantMusic = false;
   let starting = false;
   const playTrack = () => {
-    if (!track || !useTrack || !wantMusic || starting || ctx.state !== 'running' || !track.paused) return;
+    if (!track || !useTrack || !wantMusic || starting || ctx.state !== 'running' || !track.el.paused) return;
     starting = true;
-    track.play().then(
+    track.el.play().then(
       () => (starting = false),
       () => (starting = false),
     );
   };
+  /** pausa a faixa depois de um fade (contado pelo relógio do áudio, sem setTimeout) */
+  const fadeOutTrack = (tr, fade) => {
+    const t = ctx.currentTime;
+    tr.gain.gain.cancelScheduledValues(t);
+    tr.gain.gain.setValueAtTime(tr.gain.gain.value, t);
+    tr.gain.gain.linearRampToValueAtTime(0.0001, t + fade);
+    if (tr.el.paused) return;
+    const stopAt = t + fade;
+    const check = () => {
+      if (tr === track && wantMusic) return; // voltou a ser a faixa atual
+      if (ctx.currentTime >= stopAt || ctx.state !== 'running') tr.el.pause();
+      else requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  };
+  /** escolhe a faixa da fase atual (ou a da fase anterior mais próxima que carregou) */
+  function pickTrack() {
+    let next = null;
+    for (let i = Math.min(layer, tracks.length) - 1; i >= 0 && !next; i--) if (tracks[i]?.ok) next = tracks[i];
+    if (next === track) return;
+    const prev = track;
+    track = next;
+    if (prev) fadeOutTrack(prev, 0.4);
+    if (!track) {
+      useTrack = false;
+      if (wantMusic) startSynth();
+      return;
+    }
+    useTrack = true;
+    playing = false; // se a sintetizada estava tocando, para
+    track.el.currentTime = 0; // cada música começa do início
+    const t = ctx.currentTime;
+    track.gain.gain.cancelScheduledValues(t);
+    track.gain.gain.setValueAtTime(0.0001, t);
+    track.gain.gain.linearRampToValueAtTime(1, t + (prev ? 0.25 : 0.05));
+    playTrack();
+  }
 
   /* ---------- música sintetizada (reserva) ---------- */
   let playing = false;
@@ -453,10 +500,12 @@ export function createDuckAudio({ muted = false, musicUrl = null } = {}) {
       wantMusic = true;
       musicBus.gain.cancelScheduledValues(ctx.currentTime);
       musicBus.gain.setValueAtTime(useTrack ? 0.6 : 0.55, ctx.currentTime);
-      if (useTrack) {
-        track.currentTime = 0;
-        playTrack();
-        return;
+      if (tracks.some((tr) => tr?.ok)) {
+        const cur = track;
+        track = null;
+        if (cur) fadeOutTrack(cur, 0.01);
+        pickTrack();
+        if (track) return;
       }
       startSynth();
     },
@@ -467,20 +516,12 @@ export function createDuckAudio({ muted = false, musicUrl = null } = {}) {
       musicBus.gain.cancelScheduledValues(t);
       musicBus.gain.setValueAtTime(musicBus.gain.value, t);
       musicBus.gain.linearRampToValueAtTime(0.0001, t + fade);
-      if (track && !track.paused) {
-        const el = track;
-        // pausa depois do fade (contado pelo relógio do áudio, sem setTimeout)
-        const stopAt = t + fade;
-        const check = () => {
-          if (wantMusic) return;
-          if (ctx.currentTime >= stopAt || ctx.state !== 'running') el.pause();
-          else requestAnimationFrame(check);
-        };
-        requestAnimationFrame(check);
-      }
+      if (track) fadeOutTrack(track, fade);
     },
     setLayer(n) {
+      if (n === layer) return;
       layer = n;
+      if (wantMusic) pickTrack(); // novo chefe, nova música
     },
     tick() {
       if (useTrack) playTrack(); // garante que a faixa volte depois de um desbloqueio/pausa
@@ -502,7 +543,7 @@ export function createDuckAudio({ muted = false, musicUrl = null } = {}) {
       else playTrack();
     },
     pause() {
-      track?.pause();
+      track?.el.pause();
       if (ctx.state === 'running') ctx.suspend().catch(() => {});
     },
     resume() {
@@ -511,11 +552,12 @@ export function createDuckAudio({ muted = false, musicUrl = null } = {}) {
     close() {
       playing = false;
       wantMusic = false;
-      if (track) {
-        track.pause();
-        track.removeAttribute('src'); // libera o download/stream
-        track.load();
-      }
+      tracks.forEach((tr) => {
+        if (!tr) return;
+        tr.el.pause();
+        tr.el.removeAttribute('src'); // libera o download/stream
+        tr.el.load();
+      });
       ctx.close().catch(() => {});
     },
   };

@@ -257,7 +257,7 @@ const saveRecord = (r) => {
 export function startDuckGame({
   duckSpriteUrl,
   bossSpriteUrl = `${import.meta.env?.BASE_URL ?? './'}assets/pato/crazyboss.png`,
-  musicUrl = `${import.meta.env?.BASE_URL ?? './'}assets/pato/night-shade.mp3`,
+  musicUrls = ['boss2.mp3', 'boss2.mp3', 'boss3.mp3'].map((f) => `${import.meta.env?.BASE_URL ?? './'}assets/pato/${f}`),
   onExit,
 } = {}) {
   const ctrl = new AbortController();
@@ -303,7 +303,7 @@ export function startDuckGame({
       <p class="duck-game__title"></p>
       <p class="duck-game__sub"></p>
       <p class="duck-game__stats"></p>
-      <p class="duck-game__credit">♪ Música: “Night Shade” — Adhesive Wombat</p>
+      <p class="duck-game__credit">♪ Música: “Stone Cold Sword Fighters” — Yimy</p>
       <div class="duck-game__actions">
         <button type="button" data-again>Jogar de novo</button>
         <button type="button" data-leave>Sair</button>
@@ -326,7 +326,7 @@ export function startDuckGame({
   } catch {
     /* sem armazenamento */
   }
-  const audio = createDuckAudio({ muted: soundOff, musicUrl });
+  const audio = createDuckAudio({ muted: soundOff, musicUrls });
   const sfx = (name, ...a) => audio?.play(name, ...a);
   const paintSound = () => {
     const off = !audio || audio.muted;
@@ -1341,6 +1341,7 @@ export function startDuckGame({
         cs.rising = true;
         state.boss = cs.crazy;
         sfx('rise');
+        audio?.setLayer(3); // a música do Doutor entra junto com ele
         state.banner = { title: 'CRAZY BOSS', sub: 'DOUTOR INSANO', t: 0, life: 3.8 };
       }
       if (cs.rising) {
