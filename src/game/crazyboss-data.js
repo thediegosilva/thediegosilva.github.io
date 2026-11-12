@@ -1,0 +1,3 @@
+// Gerado por scripts/make-crazyboss-sprite.py — não edite à mão.
+// Medidas em px do quadro de crazyboss.png (já espelhado: o Doutor olha para a esquerda).
+export const CRAZY_DATA = {"w": 128, "h": 176, "frames": ["lower", "thruster", "upper", "armBack", "tank", "fishA", "fishB", "fishC", "head", "jaw", "armFront"], "pivots": {"armFront": [14, 106], "armBack": [109, 131], "head": [63, 69]}, "eyes": [[71, 51], [59, 51]], "core": [57, 95], "chimneys": [[35, 47], [102, 46]], "tank": [40, 16, 53, 56], "fish": {"fishA": [43, 33, 9, 7], "fishB": [80, 53, 12, 12], "fishC": [45, 57, 5, 6]}, "jawTop": 64, "jaw": [55, 64, 18, 9], "breathY": 95, "waist": 130, "thruster": [72, 146], "body": [30, 46, 90, 49]};

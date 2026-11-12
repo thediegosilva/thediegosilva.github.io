@@ -1316,6 +1316,23 @@
   box-shadow: 0 0 0 3px rgb(255 59 92 / 0.15), 0 8px 24px -8px rgb(255 59 92 / 0.8);
 }
 .duck-game__exit:hover, .duck-game__exit:focus-visible { background: #ff3b5c; color: #fff; outline: none; }
+.duck-game__sound {
+  position: fixed;
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + 46px);
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 2;
+  padding: 8px 12px;
+  border: 2px solid #7ee0ff;
+  border-radius: 10px;
+  background: rgb(7 14 20 / 0.85);
+  color: #d0f4ff;
+  font: 700 11px/1 'JetBrains Mono', monospace;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.duck-game__sound[aria-pressed='false'] { border-color: rgb(255 255 255 / 0.3); color: rgb(255 255 255 / 0.6); }
+.duck-game__sound:hover, .duck-game__sound:focus-visible { background: #7ee0ff; color: #06121a; outline: none; }
+.duck-game__sound[hidden] { display: none; }
 .duck-game__hint {
   position: fixed;
   bottom: max(18px, env(safe-area-inset-bottom));

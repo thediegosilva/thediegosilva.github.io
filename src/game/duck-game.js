@@ -12,10 +12,16 @@
  *  - Resolução interna baixa (pixel art de verdade) ampliada sem suavização.
  *  - Chefe com máquina de estados: tiro, escudo, investida (dash) e lacaios.
  *    Fase 2: o mecha explode e o pato sai na prancha voadora.
+ *    Fase 3: o pato cai sob explosões e se ergue o CRAZY BOSS — DOUTOR INSANO
+ *    (olhos-laser, socos-foguete, esferas do núcleo do pato e inimigos grandes).
+ *  - Música 8-bit e efeitos sintetizados (duck-audio.js), com botão de mudo.
  *  - O cursor do sistema nunca é escondido nem travado (vira uma mira).
  *
  * Uso: const stop = startDuckGame({ duckSpriteUrl, onExit(result) {} })
  */
+
+import { createDuckAudio } from './duck-audio.js';
+import { CRAZY_DATA } from './crazyboss-data.js';
 
 /* =========================================================================
    Configuração
@@ -24,7 +30,19 @@ const H = 270; // altura interna; a largura acompanha a proporção da tela
 const PLAYER_HP = 10;
 const MECHA_HP = 170;
 const DUCK_HP = 110;
+const CRAZY_HP = 260;
 const RECORD_KEY = 'pato-game-recorde';
+const SOUND_KEY = 'pato-game-som';
+
+/** Doutor Insano: folha crazyboss.png em camadas (gerada por scripts/make-crazyboss-sprite.py,
+ *  que também escreve crazyboss-data.js com pivôs e pontos). O sprite já olha para a esquerda. */
+const CRAZY = {
+  ...CRAZY_DATA,
+  idx: Object.fromEntries(CRAZY_DATA.frames.map((n, i) => [n, i])),
+  lights: [[42, 87], [83, 106], [77, 112], [40, 94]],
+};
+/** para que lado cada peixe da arte olha (1 = direita, -1 = esquerda) */
+const FISH_FACING = { fishA: 1, fishB: -1, fishC: 1 };
 
 /** Parallax: 5 camadas. Para usar artes próprias (ex.: SKINWALKER), coloque a URL em `image`:
  *  a imagem é repetida na horizontal sem emenda. Sem imagem, usa o desenho provisório. */
@@ -162,6 +180,57 @@ function buildSprites() {
       '.oooooooooooooooooooooooooo.',
     ], PAL),
   };
+  // inimigos grandes da fase 3 (criações do Doutor Insano), desenhados em 2x
+  const piranhaTop = [
+    '.......oooooo.......',
+    '.....ooMmmmmMoo..oo.',
+    '...ooMmmmmmmmmMooMo.',
+    '..oMmyymmmmmrmmMMMo.',
+    '.oMmmyommmmrRrmMMo..',
+  ];
+  const piranhaBottom = [
+    '.oMMmmmmmmmmmMMooMo.',
+    '..ooMMMMMMMMMoo..oo.',
+    '....ooooooooo.......',
+  ];
+  s.piranha = [
+    upscale(sprite([...piranhaTop, 'owowowmmmmmmrmmMMo..', 'o..........ommMMMo..', 'owowowmmmmmmmmmMMMo.', ...piranhaBottom], PAL), 2),
+    upscale(sprite([...piranhaTop, 'owowowmmmmmmrmmMMo..', 'ooooooommmmmmmmMMMo.', 'owowowmmmmmmmmmMMMo.', ...piranhaBottom], PAL), 2),
+  ];
+  const droneBody = [
+    '.......oo.......',
+    '.....ooMMoo.....',
+    '...ooMmmmmMoo...',
+    '..oMmmrrrrmmMo..',
+    '.oMmmrRwwRrmmMo.',
+    '.oMmmrRwwRrmmMo.',
+    '..oMmmrrrrmmMo..',
+    '...ooMMMMMMoo...',
+    '...oMo.oo.oMo...',
+    '..oMo..oo..oMo..',
+    '..orr..oo..rro..',
+  ];
+  s.drone = [
+    upscale(sprite(['ggggggg..ggggggg', ...droneBody], PAL), 2),
+    upscale(sprite(['...gggggggggg...', ...droneBody], PAL), 2),
+  ];
+  // projéteis (desenhados pelo centro)
+  s.orb = sprite(['..ooo..', '.oyyyo.', 'oywwyyo', 'oywyyyo', 'oyyyyOo', '.oyyOo.', '..ooo..'], PAL);
+  s.orb2 = upscale(s.orb, 2);
+  s.bubble = sprite(['.cccc.', 'cw...c', 'cw...c', 'c....c', 'c...Cc', '.CCCC.'], PAL);
+  s.bolt = sprite(['.l.', 'lwl', '.l.'], PAL);
+  s.eyeLaser = sprite(['wrrrRR'], PAL);
+  // coração flutuante (+1 HP)
+  s.heart = sprite([
+    '.oo...oo.',
+    'orrooorRo',
+    'orwrrrrRo',
+    'orrrrrrRo',
+    '.orrrrRo.',
+    '..orrRo..',
+    '...oRo...',
+    '....o....',
+  ], { ...PAL, r: '#ff4f7a', R: '#c21f4a' });
   s.mecha2 = upscale(s.mecha, 2);
   s.board2 = upscale(s.board, 2);
   return s;
@@ -200,7 +269,11 @@ const saveRecord = (r) => {
 /* =========================================================================
    Jogo
    ========================================================================= */
-export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
+export function startDuckGame({
+  duckSpriteUrl,
+  bossSpriteUrl = `${import.meta.env?.BASE_URL ?? './'}assets/pato/crazyboss.png`,
+  onExit,
+} = {}) {
   const ctrl = new AbortController();
   const on = (target, type, fn, opts = {}) => target.addEventListener(type, fn, { ...opts, signal: ctrl.signal });
   const html = document.documentElement;
@@ -235,10 +308,11 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
   const wrap = document.createElement('div');
   wrap.className = 'duck-game';
   wrap.setAttribute('role', 'application');
-  wrap.setAttribute('aria-label', 'Minigame: batalha contra o Mecha Pato. Aperte Escape para sair.');
+  wrap.setAttribute('aria-label', 'Minigame: batalha contra o Mecha Pato, o Pato e o Doutor Insano. Aperte Escape para sair e M para ligar ou desligar o som.');
   wrap.innerHTML = `
     <canvas class="duck-game__canvas"></canvas>
     <button type="button" class="duck-game__exit">ESC — Sair da Batalha</button>
+    <button type="button" class="duck-game__sound" aria-pressed="true"></button>
     <div class="duck-game__end" hidden>
       <p class="duck-game__title"></p>
       <p class="duck-game__sub"></p>
@@ -248,18 +322,49 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
         <button type="button" data-leave>Sair</button>
       </div>
     </div>
-    <p class="duck-game__hint">${touch ? 'Arraste o dedo para mover • tiro automático' : 'Mouse move a nave • clique ou Espaço atira • ESC sai'}</p>
+    <p class="duck-game__hint">${touch ? 'Arraste o dedo para mover • tiro automático' : 'Mouse move a nave • clique ou Espaço atira • M som • ESC sai'}</p>
     <p class="duck-game__rotate">↻ Gire o celular para jogar melhor</p>`;
   document.body.appendChild(wrap);
   const canvas = wrap.querySelector('canvas');
   const g = canvas.getContext('2d');
   const exitBtn = wrap.querySelector('.duck-game__exit');
   const endBox = wrap.querySelector('.duck-game__end');
+  const soundBtn = wrap.querySelector('.duck-game__sound');
   exitBtn.focus({ preventScroll: true });
+
+  /* ---------- som (Web Audio sintetizado; preferência de mudo fica salva) ---------- */
+  let soundOff = false;
+  try {
+    soundOff = localStorage.getItem(SOUND_KEY) === 'off';
+  } catch {
+    /* sem armazenamento */
+  }
+  const audio = createDuckAudio({ muted: soundOff });
+  const sfx = (name, ...a) => audio?.play(name, ...a);
+  const paintSound = () => {
+    const off = !audio || audio.muted;
+    soundBtn.textContent = off ? '♪ SOM: OFF' : '♪ SOM: ON';
+    soundBtn.setAttribute('aria-pressed', String(!off));
+    soundBtn.hidden = !audio;
+  };
+  const toggleSound = () => {
+    if (!audio) return;
+    audio.unlock();
+    audio.setMuted(!audio.muted);
+    try {
+      localStorage.setItem(SOUND_KEY, audio.muted ? 'off' : 'on');
+    } catch {
+      /* sem armazenamento */
+    }
+    paintSound();
+  };
+  paintSound();
 
   const S = buildSprites();
   const duckImg = new Image();
   if (duckSpriteUrl) duckImg.src = duckSpriteUrl;
+  const crazyImg = new Image();
+  crazyImg.src = bossSpriteUrl;
   const layerImgs = PARALLAX_LAYERS.map((l) => {
     if (!l.image) return null;
     const im = new Image();
@@ -297,6 +402,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     input.has = true;
   });
   on(canvas, 'pointerdown', (e) => {
+    audio?.unlock();
     const p = toGame(e.clientX, e.clientY);
     input.x = p.x;
     input.y = touch ? p.y - 26 : p.y;
@@ -307,7 +413,10 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
   on(window, 'blur', () => (input.firing = false));
   on(canvas, 'contextmenu', (e) => e.preventDefault());
   on(window, 'keydown', (e) => {
-    if (e.key === 'Escape') {
+    audio?.unlock();
+    if (e.key === 'm' || e.key === 'M') {
+      toggleSound();
+    } else if (e.key === 'Escape') {
       e.preventDefault();
       cleanup('saiu');
     } else if (e.code === 'Space') {
@@ -321,10 +430,12 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     if (e.code === 'Space') input.firing = false;
   });
   on(exitBtn, 'click', () => cleanup('saiu'));
+  on(soundBtn, 'click', toggleSound);
   on(wrap.querySelector('[data-leave]'), 'click', () => cleanup(state.result || 'saiu'));
   on(wrap.querySelector('[data-again]'), 'click', () => {
     endBox.hidden = true;
     reset();
+    audio?.startMusic();
     loopStart();
   });
 
@@ -342,12 +453,19 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
       shots: [],
       enemyShots: [],
       minions: [],
+      bigs: [], // inimigos grandes (fase 3)
+      bigTimer: 4,
+      hearts: [], // corações flutuantes: pegar = +1 HP
+      heartTimer: rand(9, 13),
       particles: [],
       texts: [],
       boss: newMecha(),
       phase: 1,
       transition: 0,
+      cutscene: null, // queda do pato / surgimento e morte do Doutor Insano
+      banner: null,
     };
+    audio?.setLayer(1);
     input.x = W * 0.2;
     input.y = H / 2;
   }
@@ -363,6 +481,21 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     return {
       kind: 'duck', x, y, w: 40, h: 44, hp: DUCK_HP, max: DUCK_HP,
       st: 'taunt', stT: 0, fire: 0, last: '', isShielded: false, baseX: W - 70, ang: 0, hurt: 0, bob: 0,
+    };
+  }
+
+  function newCrazy() {
+    return {
+      kind: 'crazy', x: W - CRAZY.w - 6, y: H + 20, w: CRAZY.w, h: CRAZY.h, hp: CRAZY_HP, max: CRAZY_HP,
+      st: 'rise', stT: 0, fire: 0, last: '', isShielded: false, baseX: W - CRAZY.w - 6, bob: 0, hurt: 0,
+      // pose atual e alvo (suavizada a cada quadro): aquário, garra da frente, braço de trás, inclinação
+      headRot: 0, armF: 0, armB: 0, lean: 0, pose: { headRot: 0, armF: 0, armB: 0, lean: 0 },
+      // vida própria: respiração, rosto boiando, piscadas, maxilar, olhos seguindo a nave
+      breath: 0, faceX: 0, faceY: 0, blink: 0, blinkIn: rand(1.5, 3.5), jaw: 0, jawT: 0, mood: 'grin',
+      look: 0, twitch: 0, twitchIn: rand(2, 4), vy: 0, prevY: H + 20, recoil: 0,
+      fish: CRAZY.frames.filter((n) => n.startsWith('fish')).map((n, i) => ({ n, t: rand(0, 9), sp: rand(0.5, 0.9), dir: i % 2 ? 1 : -1, ox: 0, oy: 0 })),
+      beam: null, punches: 0, sub: '', emit: 0, eyeGlow: 0, coreGlow: 0,
+      bubbles: Array.from({ length: 9 }, () => ({ x: rand(0, 1), y: rand(0, 1), v: rand(6, 14) })),
     };
   }
 
@@ -382,6 +515,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     if (p.inv > 0 || state.result) return;
     p.hp = Math.max(0, p.hp - dmg);
     p.inv = 1.1;
+    sfx('playerHit');
     shake(4 + dmg * 2);
     state.flash = 0.25;
     boom(p.x + 9, p.y + 5, 10, ['#7ee0ff', '#ffffff', '#ff3b5c'], 70);
@@ -409,15 +543,22 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     b.stT = 0;
     b.fire = 0;
     b.isShielded = next === 'shield';
-    if (next === 'dash') b.dashY = playerCenter().y - b.h / 2;
+    if (next === 'dash') {
+      b.dashY = playerCenter().y - b.h / 2;
+      sfx('dash');
+    }
     if (next === 'minions') {
+      sfx('minion');
       const n = Math.round(4 + 4 * (rage(b) - 1));
       for (let i = 0; i < n; i++) {
         state.minions.push({ x: b.x + rand(0, 20), y: clamp(b.y + rand(-50, 50), 20, H - 30), w: 9, h: 8, vx: -rand(55, 95) * rage(b), hp: 2, frame: Math.random() });
       }
       popText(b.x - 10, b.y - 10, 'LACAIOS!', '#ffd23f');
     }
-    if (next === 'shield') popText(b.x - 6, b.y - 10, 'ESCUDO!', '#7ee0ff');
+    if (next === 'shield') {
+      popText(b.x - 6, b.y - 10, 'ESCUDO!', '#7ee0ff');
+      sfx('shield');
+    }
   }
 
   function updateMecha(b, dt) {
@@ -446,6 +587,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
             for (let i = -2; i <= 2; i++) state.enemyShots.push({ x: b.x + 4, y: b.y + 26, vx: -130 * r, vy: i * 28, sprite: 'egg', w: 6, h: 6 });
           }
           b.fire = 0.75 / r;
+          sfx('egg');
         }
         if (b.stT > 3.2) mechaNextState(b);
         break;
@@ -454,6 +596,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
         if (b.fire <= 0) {
           aimed(b, 110 * r, rand(-0.1, 0.1), 'egg', 4, 26);
           b.fire = 0.55 / r;
+          sfx('egg');
         }
         if (b.stT > 2.8) mechaNextState(b);
         break;
@@ -475,6 +618,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
         if (b.fire <= 0) {
           aimed(b, 120 * r, 0, 'egg', 4, 26);
           b.fire = 1.1 / r;
+          sfx('egg');
         }
         if (b.stT > 2.4) mechaNextState(b);
         break;
@@ -491,8 +635,12 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     b.stT = 0;
     b.fire = 0;
     b.ang = Math.PI * 0.75;
-    if (next === 'charge') b.dashY = playerCenter().y - b.h / 2;
+    if (next === 'charge') {
+      b.dashY = playerCenter().y - b.h / 2;
+      sfx('dash');
+    }
     if (next === 'minions') {
+      sfx('minion');
       for (let i = 0; i < 5; i++) state.minions.push({ x: W + i * 14, y: rand(20, H - 30), w: 9, h: 8, vx: -rand(80, 120), hp: 1, frame: Math.random() });
     }
   }
@@ -519,6 +667,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
         if (b.fire <= 0) {
           for (const s of [-0.22, -0.11, 0, 0.11, 0.22]) aimed(b, 230 * r, s, 'laser', muzzle.ox, muzzle.oy);
           b.fire = 0.42 / r;
+          sfx('duckLaser');
         }
         if (b.stT > 3) duckNextState(b);
         break;
@@ -529,6 +678,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
           const a = Math.PI + Math.sin(b.ang) * 0.75;
           state.enemyShots.push({ x: b.x, y: b.y + 16, vx: Math.cos(a) * 210 * r, vy: Math.sin(a) * 210 * r, sprite: 'laser', w: 6, h: 1, ang: a });
           b.fire = 0.045 / r;
+          sfx('duckLaser');
         }
         if (b.stT > 2.6) duckNextState(b);
         break;
@@ -542,6 +692,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
             state.enemyShots.push({ x: b.x + 18, y: b.y + 20, vx: Math.cos(a) * 120 * r, vy: Math.sin(a) * 120 * r, sprite: 'laser', w: 6, h: 1, ang: a });
           }
           b.fire = 0.7 / r;
+          sfx('ring');
         }
         if (b.stT > 2.8) duckNextState(b);
         break;
@@ -563,6 +714,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
         if (b.fire <= 0) {
           aimed(b, 200 * r, 0, 'laser', muzzle.ox, muzzle.oy);
           b.fire = 0.3 / r;
+          sfx('duckLaser');
         }
         if (b.stT > 2.2) duckNextState(b);
         break;
@@ -570,8 +722,597 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     if (b.st !== 'charge' && hit(b, playerBox())) hurtPlayer(2);
   }
 
+  /* ---------- Fase 3: CRAZY BOSS — DOUTOR INSANO ---------- */
+  // ponto do sprite (px do quadro) -> coordenada do jogo, com respiração, aquário e rosto
+  function crazyPoint(b, [px, py], part = 'body') {
+    let x = px;
+    let y = py + (py < CRAZY.breathY ? b.breath : 0);
+    if (part === 'head') {
+      const [hx, hy] = CRAZY.pivots.head;
+      const c = Math.cos(b.headRot);
+      const s = Math.sin(b.headRot);
+      const qx = px + b.faceX;
+      const qy = py + b.faceY;
+      x = hx + (qx - hx) * c - (qy - hy) * s;
+      y = hy + (qx - hx) * s + (qy - hy) * c + b.breath;
+    }
+    return { x: b.x + x, y: b.y + crazyBob(b) + y };
+  }
+  const crazyBob = (b) => (b.st === 'punch' ? 0 : Math.round(Math.sin(b.bob * 1.8) * 3));
+  // caixas: tronco + aquário (recebe tiros) e miolo (machuca ao encostar)
+  const crazyHitBox = (b) => ({ x: b.x + 34, y: b.y + 6, w: 64, h: 140 });
+  const crazyBodyBox = (b) => ({ x: b.x + 40, y: b.y + 24, w: 52, h: 120 });
+  // garra da frente esticada para a esquerda (soco-foguete)
+  const crazyFistBox = (b) => ({ x: b.x - 46, y: b.y + 92, w: 58, h: 28 });
+  const bossBox = (b) => (b.kind === 'crazy' ? crazyHitBox(b) : b);
+
+  function spawnBig(type) {
+    const y = rand(30, H - 60);
+    if (type === 'piranha') {
+      state.bigs.push({ type, x: W + 10, y, baseY: y, w: 40, h: 22, hp: 6, vx: -rand(38, 55), t: rand(0, 6), fire: rand(0.8, 1.4), frame: 0 });
+    } else {
+      state.bigs.push({ type, x: W + 10, y, w: 32, h: 24, hp: 9, tx: rand(W * 0.45, W * 0.68), t: 0, fire: 1.2, frame: 0, life: rand(8, 11) });
+    }
+    sfx('bigEnemy');
+  }
+
+  function crazyNextState(b) {
+    const options = ['eyes', 'core', 'eyeBolts', 'punch', 'core', 'summon'].filter(
+      (s) => s !== b.last && !(s === 'summon' && state.bigs.length >= 2),
+    );
+    const next = pick(options);
+    b.last = next;
+    b.st = next;
+    b.stT = 0;
+    b.fire = 0;
+    b.sub = '';
+    b.beam = null;
+    const r = rage(b);
+    if (next === 'eyes') {
+      const e = crazyPoint(b, CRAZY.eyes[0], 'head');
+      const p = playerCenter();
+      b.beam = { on: false, ang: Math.atan2(p.y - e.y, p.x - e.x) + rand(-0.35, 0.35) };
+      popText(b.x - 10, b.y + 20, 'OLHOS-LASER!', '#ff3b5c');
+      sfx('eyeCharge');
+    } else if (next === 'punch') {
+      b.punches = r > 1.45 ? 3 : 2;
+      b.sub = 'wind';
+      popText(b.x - 14, b.y + 90, 'SOCO-FOGUETE!', '#ff8a1e');
+      sfx('punchWind');
+    } else if (next === 'core') {
+      b.sub = pick(['spiral', 'rings', 'bigOrb']);
+      popText(b.x + 20, b.y + 66, 'NÚCLEO DO PATO!', '#ffd23f');
+    } else if (next === 'summon') {
+      popText(b.x - 30, b.y + 30, 'VENHAM, CRIAÇÕES!', '#b6ff6a');
+    }
+  }
+
+  /* vida do Doutor: tudo que se mexe sozinho, em qualquer estado (luta, entrada, morte) */
+  function animateCrazy(b, dt) {
+    const t = b.bob;
+    // respiração: o tronco de cima (com braços e aquário) sobe 1-2 px e volta
+    const breathSpeed = b.mood === 'laugh' || b.mood === 'scream' ? 3.2 : 1.5;
+    b.breathT = (b.breathT || 0) + dt * breathSpeed;
+    b.breath = -Math.round((Math.sin(b.breathT) + 1) * (b.mood === 'scream' ? 1.2 : 0.9));
+    // rosto boiando dentro da água
+    b.faceX = Math.round(Math.sin(t * 0.8) * 1.2);
+    b.faceY = Math.round(Math.sin(t * 1.3 + 1) * 1.6);
+    // olhos seguem a nave
+    const e = crazyPoint(b, CRAZY.eyes[0], 'head');
+    const p = playerCenter();
+    const dx = p.x - e.x;
+    const dy = p.y - e.y;
+    b.look = Math.abs(dx) > Math.abs(dy) * 0.6 ? Math.sign(dx) : 0;
+    b.lookY = Math.abs(dy) > 30 ? Math.sign(dy) : 0;
+    // piscadas (às vezes duplas); com dor, aperta os olhos
+    b.blinkIn -= dt;
+    if (b.blinkIn <= 0) {
+      b.blink = 0.14;
+      b.blinkIn = Math.random() < 0.25 ? 0.25 : rand(1.8, 4.5);
+    }
+    b.blink = Math.max(0, b.blink - dt);
+    // maxilar conforme o humor
+    b.jawT += dt;
+    const target = {
+      grin: Math.sin(b.jawT * 2.1) > 0.85 ? 1 : 0, // resmunga de vez em quando
+      laugh: Math.round(1.5 + Math.sin(b.jawT * 22) * 1.5), // "HA-HA-HA"
+      scream: 3 + Math.round(Math.sin(b.jawT * 40)),
+      grit: 0,
+      hurt: 1,
+    }[b.mood];
+    b.jaw += (target - b.jaw) * Math.min(1, dt * 25);
+    // bolhas saindo da boca quando ri ou grita
+    if ((b.mood === 'laugh' || b.mood === 'scream') && Math.random() < dt * 6) {
+      const bb = b.bubbles[(Math.random() * b.bubbles.length) | 0];
+      const [tx, ty, tw, th] = CRAZY.tank;
+      bb.x = (CRAZY.jaw[0] + CRAZY.jaw[2] / 2 + b.faceX - tx) / tw + rand(-0.05, 0.05);
+      bb.y = (CRAZY.jawTop + b.faceY - ty) / th;
+    }
+    for (const bb of b.bubbles) {
+      bb.y -= (bb.v / CRAZY.tank[3]) * dt;
+      bb.x += Math.sin(t * 3 + bb.v) * 0.002;
+      if (bb.y < 0) {
+        bb.y = 1;
+        bb.x = rand(0, 1);
+      }
+    }
+    // peixes nadando de um lado para o outro dentro do aquário
+    for (const f of b.fish) {
+      f.t += dt * f.sp;
+      const [, , fw] = CRAZY.fish[f.n];
+      const span = (CRAZY.tank[2] - fw) * 0.42;
+      const nx = Math.sin(f.t) * span;
+      f.dir = nx < f.ox ? -1 : nx > f.ox ? 1 : f.dir;
+      f.ox = nx;
+      f.oy = Math.sin(f.t * 2.3) * 3;
+    }
+    // espasmos da garra (cientista maluco)
+    b.twitchIn -= dt;
+    if (b.twitchIn <= 0) {
+      b.twitch = 0.18;
+      b.twitchIn = rand(1.5, 3.5);
+    }
+    b.twitch = Math.max(0, b.twitch - dt);
+    // velocidade vertical (inclina e muda a chama do propulsor)
+    b.vy = (b.y - b.prevY) / Math.max(dt, 1e-3);
+    b.prevY = b.y;
+    b.recoil = Math.max(0, b.recoil - dt * 12);
+  }
+
+  function updateCrazy(b, dt) {
+    const r = rage(b);
+    const pose = b.pose;
+    b.stT += dt;
+    b.fire -= dt;
+    b.hurt = Math.max(0, b.hurt - dt);
+    b.bob += dt;
+    b.eyeGlow = Math.max(0, b.eyeGlow - dt * 2);
+    b.coreGlow = Math.max(0, b.coreGlow - dt * 2);
+    // pose de descanso: garra gesticulando, braço de trás balançando, aquário oscilando
+    pose.headRot = Math.sin(b.bob * 1.6) * 0.025;
+    pose.armF = Math.sin(b.bob * 2.3) * 0.12 + Math.sin(b.bob * 5.1) * 0.04;
+    pose.armB = Math.sin(b.bob * 1.7 + 1) * 0.08;
+    pose.lean = 0;
+    b.mood = 'grin';
+    const hover = (k = 1) => {
+      const target = clamp(playerCenter().y - 85 + Math.sin(b.bob * 0.9) * 50, -4, H - 160);
+      b.y += (target - b.y) * Math.min(1, dt * k);
+      b.x += (b.baseX + Math.sin(b.bob * 0.7) * 10 - b.x) * Math.min(1, dt * 2);
+    };
+    const orb = (x, y, a, v, big = false) =>
+      state.enemyShots.push({ kind: big ? 'bigOrb' : 'orb', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0 });
+
+    // fumaça saindo das chaminés
+    b.emit -= dt;
+    if (b.emit <= 0) {
+      b.emit = 0.07;
+      for (const c of CRAZY.chimneys) {
+        const p = crazyPoint(b, c);
+        state.particles.push({ x: p.x + rand(-1, 1), y: p.y, vx: rand(-6, 6), vy: -rand(18, 30), life: rand(0.8, 1.4), max: 1.4, c: pick(['#8a8aa0', '#6a6a80', '#b0b0c0']), s: pick([2, 2, 3]), smoke: true });
+      }
+    }
+
+    switch (b.st) {
+      case 'taunt':
+        hover(1);
+        pose.armF = -0.45 + Math.sin(b.bob * 14) * 0.25; // sacode a garra rindo
+        pose.armB = -0.5 + Math.sin(b.bob * 11) * 0.15;
+        pose.headRot = Math.sin(b.bob * 18) * 0.04;
+        b.mood = 'laugh';
+        if (b.stT > 1.4) crazyNextState(b);
+        break;
+
+      case 'eyes': {
+        // carrega (olhos acendendo) e dispara dois raios que perseguem a nave devagar
+        hover(0.6);
+        const beam = b.beam;
+        const eyes = CRAZY.eyes.map((e) => crazyPoint(b, e, 'head'));
+        const mid = { x: (eyes[0].x + eyes[1].x) / 2, y: (eyes[0].y + eyes[1].y) / 2 };
+        const p = playerCenter();
+        b.eyeGlow = 1;
+        pose.headRot = -0.05;
+        pose.armF = 0.35; // garra recolhida, concentrando
+        pose.armB = -0.3;
+        b.mood = beam.on ? 'scream' : 'grit';
+        const chargeT = 0.85;
+        const fireT = 1.7 + 0.4 * (r - 1);
+        if (b.stT >= chargeT && !beam.on) {
+          beam.on = true;
+          sfx('eyeBeam', fireT);
+          shake(3);
+        }
+        const want = Math.atan2(p.y - mid.y, p.x - mid.x);
+        let diff = want - beam.ang;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        const turn = (beam.on ? 0.5 : 1.6) * r * dt;
+        beam.ang += clamp(diff, -turn, turn);
+        if (beam.on) {
+          pose.headRot = -0.05 + rand(-0.02, 0.02); // tremendo com o recuo
+          shake(1.2);
+          const dx = Math.cos(beam.ang);
+          const dy = Math.sin(beam.ang);
+          for (const e of eyes) {
+            const vx = p.x - e.x;
+            const vy = p.y - e.y;
+            const t = vx * dx + vy * dy;
+            if (t > 0 && Math.abs(vx * dy - vy * dx) < 4) hurtPlayer(2);
+          }
+          if (Math.random() < 0.5) {
+            // faíscas onde o raio bate na borda da tela
+            const L = 700;
+            const ex = clamp(mid.x + dx * L, 0, W);
+            const ey = clamp(mid.y + dy * L, 0, H);
+            boom(ex, ey, 2, ['#ff3b5c', '#ffffff', '#ff8a1e'], 60);
+          }
+        }
+        if (b.stT > chargeT + fireT) {
+          b.beam = null;
+          crazyNextState(b);
+        }
+        break;
+      }
+
+      case 'eyeBolts': // rajadas rápidas, um olho de cada vez
+        hover(1.2);
+        b.eyeGlow = 0.7;
+        b.mood = 'laugh';
+        pose.armF = -0.2 + Math.sin(b.bob * 9) * 0.1;
+        if (b.fire <= 0) {
+          b.alt = !b.alt;
+          const e = crazyPoint(b, CRAZY.eyes[b.alt ? 0 : 1], 'head');
+          const p = playerCenter();
+          const a = Math.atan2(p.y - e.y, p.x - e.x) + rand(-0.12, 0.12);
+          state.enemyShots.push({ x: e.x, y: e.y, vx: Math.cos(a) * 250 * r, vy: Math.sin(a) * 250 * r, sprite: 'eyeLaser', w: 6, h: 1, ang: a });
+          b.fire = 0.13 / r;
+          sfx('eyeBolt');
+        }
+        if (b.stT > 2.4) crazyNextState(b);
+        break;
+
+      case 'core': {
+        // o pato no núcleo do peito solta esferas
+        hover(0.8);
+        pose.armF = -0.55 + Math.sin(b.bob * 10) * 0.08; // abre os braços expondo o núcleo
+        pose.armB = -0.95 + Math.sin(b.bob * 10 + 1) * 0.08;
+        pose.lean = 0.04;
+        b.mood = 'laugh';
+        b.coreGlow = 1;
+        const c = crazyPoint(b, CRAZY.core);
+        if (b.sub === 'spiral' && b.fire <= 0) {
+          b.spin = (b.spin || 0) + 0.32;
+          for (const off of [0, Math.PI * 0.66, Math.PI * 1.33]) orb(c.x, c.y, b.spin + off, 95 * r);
+          b.fire = 0.1 / r;
+          sfx('orb');
+        } else if (b.sub === 'rings' && b.fire <= 0) {
+          const n = 16;
+          const off = Math.random();
+          for (let i = 0; i < n; i++) orb(c.x, c.y, ((i + off) / n) * Math.PI * 2, 85 * r);
+          b.fire = 0.8 / r;
+          sfx('ring');
+          sfx('orb');
+        } else if (b.sub === 'bigOrb' && b.fire <= 0) {
+          const p = playerCenter();
+          orb(c.x, c.y, Math.atan2(p.y - c.y, p.x - c.x) + rand(-0.25, 0.25), 75, true);
+          b.fire = 0.9 / r;
+          sfx('bigOrb');
+        }
+        if (b.stT > 3) crazyNextState(b);
+        break;
+      }
+
+      case 'punch': {
+        // soco-foguete: mira na altura da nave, avisa e cruza a tela com o braço esticado
+        const fist = CRAZY.pivots.armFront[1]; // altura do punho esticado em relação ao topo do sprite
+        if (b.sub === 'wind') {
+          const ty = clamp(playerCenter().y - fist, -70, H - 150);
+          b.dashY = ty;
+          b.x += (W - b.w + 8 - b.x) * Math.min(1, dt * 5);
+          b.y += (ty - b.y) * Math.min(1, dt * 7);
+          pose.armF = 0.6; // puxa a garra para trás
+          pose.armB = -0.4;
+          pose.lean = 0.1;
+          b.mood = 'grit';
+          if (b.stT > 0.85 / Math.sqrt(r)) {
+            b.sub = 'go';
+            b.stT = 0;
+            sfx('punch');
+            shake(5);
+          }
+        } else if (b.sub === 'go') {
+          pose.armF = -Math.PI / 2; // garra esticada apontando para a nave
+          pose.armB = 0.5;
+          pose.lean = -0.14;
+          b.mood = 'scream';
+          b.x -= (600 + 120 * (r - 1)) * dt;
+          if (Math.random() < 0.8) {
+            const f = crazyFistBox(b);
+            state.particles.push({ x: f.x + f.w + 30, y: f.y + rand(4, f.h - 4), vx: rand(60, 120), vy: rand(-10, 10), life: 0.4, max: 0.4, c: pick(['#ff8a1e', '#ffd23f', '#ff3b5c']), s: 2 });
+          }
+          if (hit(crazyFistBox(b), playerBox()) || hit(crazyBodyBox(b), playerBox())) hurtPlayer(3);
+          if (b.x < -b.w - 40) {
+            b.x = W + 30;
+            b.sub = 'back';
+            b.stT = 0;
+          }
+        } else {
+          pose.armF = -0.2;
+          b.x += (b.baseX - b.x) * Math.min(1, dt * 4);
+          b.y += (clamp(b.y, 4, H - b.h - 4) - b.y) * Math.min(1, dt * 4);
+          if (Math.abs(b.x - b.baseX) < 6) {
+            b.punches--;
+            if (b.punches > 0) {
+              b.sub = 'wind';
+              b.stT = 0;
+              sfx('punchWind');
+            } else crazyNextState(b);
+          }
+        }
+        break;
+      }
+
+      case 'summon': // levanta a garra e chama inimigos grandes + lacaios
+        hover(0.8);
+        pose.armF = -0.6 + Math.sin(b.bob * 16) * 0.2; // ergue a garra chamando as criações
+        pose.armB = -0.7;
+        pose.headRot = -0.04;
+        b.mood = 'laugh';
+        if (b.stT > 0.4 && !b.summoned) {
+          b.summoned = true;
+          spawnBig('piranha');
+          if (state.bigs.length < 3) spawnBig('drone');
+          for (let i = 0; i < 4; i++) state.minions.push({ x: W + i * 16, y: rand(20, H - 30), w: 9, h: 8, vx: -rand(80, 115), hp: 1, frame: Math.random() });
+          sfx('minion');
+        }
+        if (b.stT > 1.6) {
+          b.summoned = false;
+          crazyNextState(b);
+        }
+        break;
+    }
+
+    // suaviza a pose (movimentos de pixel art com peso)
+    const k = Math.min(1, dt * (b.st === 'punch' ? 14 : 8));
+    b.headRot += (pose.headRot - b.headRot) * k;
+    b.armF += (pose.armF - b.armF) * k;
+    b.armB += (pose.armB - b.armB) * k;
+    b.lean += (pose.lean - b.lean) * k;
+    if (b.hurt > 0) b.mood = 'hurt';
+    animateCrazy(b, dt);
+
+    if (b.st !== 'punch' && hit(crazyBodyBox(b), playerBox())) hurtPlayer(2);
+
+    // inimigos grandes chegam de tempos em tempos
+    state.bigTimer -= dt;
+    if (state.bigTimer <= 0) {
+      state.bigTimer = rand(7, 10) / r;
+      if (state.bigs.length < 2) spawnBig(pick(['piranha', 'drone']));
+    }
+  }
+
+  function updateBigs(dt) {
+    for (const e of state.bigs) {
+      e.t += dt;
+      e.frame += dt * 8;
+      e.fire -= dt;
+      e.hurt = Math.max(0, (e.hurt || 0) - dt);
+      const p = playerCenter();
+      if (e.type === 'piranha') {
+        // nada em ondas e cospe bolhas
+        e.x += e.vx * dt;
+        e.y = clamp(e.baseY + Math.sin(e.t * 2.6) * 22, 18, H - e.h - 10);
+        e.baseY += (p.y - e.h / 2 - e.baseY) * Math.min(1, dt * 0.35);
+        if (e.fire <= 0 && e.x < W - 20) {
+          for (const s of [-0.2, 0, 0.2]) {
+            const a = Math.atan2(p.y - (e.y + 12), p.x - e.x) + s;
+            state.enemyShots.push({ kind: 'bubble', x: e.x + 2, y: e.y + 12, vx: Math.cos(a) * 95, vy: Math.sin(a) * 95, t: rand(0, 6) });
+          }
+          e.fire = rand(1.5, 2.1);
+          sfx('bubble');
+        }
+        if (e.x < -e.w - 10) e.dead = true;
+      } else {
+        // drone-garra: para numa posição, segue a nave na vertical e solta faíscas em leque
+        e.life -= dt;
+        const tx = e.life > 0 ? e.tx : -80;
+        e.x += (tx - e.x) * Math.min(1, dt * (e.life > 0 ? 1.4 : 0.9));
+        if (e.life <= 0) e.x -= 60 * dt;
+        e.y += (clamp(p.y - e.h / 2 + Math.sin(e.t * 1.8) * 30, 18, H - e.h - 10) - e.y) * Math.min(1, dt * 1.2);
+        if (e.fire <= 0 && e.life > 0) {
+          for (const s of [-0.3, -0.1, 0.1, 0.3]) {
+            const a = Math.atan2(p.y - (e.y + 12), p.x - (e.x + 6)) + s;
+            state.enemyShots.push({ kind: 'bolt', x: e.x + 6, y: e.y + 12, vx: Math.cos(a) * 140, vy: Math.sin(a) * 140, t: 0 });
+          }
+          e.fire = 1.3;
+          sfx('bolt');
+        }
+        if (e.x < -e.w - 10) e.dead = true;
+      }
+      if (!e.dead && hit(e, playerBox())) {
+        e.dead = true;
+        boom(e.x + e.w / 2, e.y + e.h / 2, 24, undefined, 110);
+        sfx('pop');
+        hurtPlayer(2);
+      }
+    }
+    state.bigs = state.bigs.filter((e) => !e.dead);
+  }
+
+  /* ---------- corações flutuantes: vêm da direita balançando; pegar = +1 HP ---------- */
+  function updateHearts(dt) {
+    const p = state.player;
+    if (!state.cutscene && !state.transition && !state.result) {
+      state.heartTimer -= dt;
+      if (state.heartTimer <= 0) {
+        // aparecem mais vezes quando a nave está machucada
+        state.heartTimer = p.hp <= 3 ? rand(6, 9) : p.hp < PLAYER_HP ? rand(10, 15) : rand(16, 22);
+        const y = rand(30, H - 40);
+        state.hearts.push({ x: W + 10, y, baseY: y, t: rand(0, 6), w: 9, h: 8 });
+      }
+    }
+    // a nave inteira pega o coração (mais generoso que a caixa de dano)
+    const grab = { x: p.x - 2, y: p.y - 2, w: 22, h: 15 };
+    for (const h of state.hearts) {
+      h.t += dt;
+      h.x -= 34 * dt;
+      h.y = h.baseY + Math.sin(h.t * 2.4) * 14;
+      if (h.x < -12) h.dead = true;
+      else if (!state.result && p.hp > 0 && hit(h, grab)) {
+        h.dead = true;
+        boom(h.x + 4, h.y + 4, 14, ['#ff4f7a', '#ffffff', '#ffb3c6'], 60);
+        if (p.hp < PLAYER_HP) {
+          p.hp += 1;
+          popText(p.x - 4, p.y - 10, '+1 HP', '#ff4f7a');
+        } else {
+          state.score += 200; // vida cheia: vira pontos
+          popText(p.x - 4, p.y - 10, '+200', '#ffd23f');
+        }
+        sfx('heart');
+      }
+    }
+    state.hearts = state.hearts.filter((h) => !h.dead);
+  }
+  function drawHearts() {
+    for (const h of state.hearts) {
+      const pulse = 0.5 + 0.5 * Math.sin(h.t * 6);
+      g.fillStyle = `rgba(255,79,122,${0.18 + 0.15 * pulse})`;
+      g.beginPath();
+      g.arc(Math.round(h.x + 4.5), Math.round(h.y + 4), 7 + pulse * 2, 0, Math.PI * 2);
+      g.fill();
+      drawSprite(S.heart, h.x, h.y);
+      if (Math.floor(h.t * 4) % 3 === 0) {
+        g.fillStyle = '#ffffff'; // brilho
+        g.fillRect(Math.round(h.x + 8), Math.round(h.y - 1), 1, 1);
+      }
+    }
+  }
+
   // área de colisão do jogador: só o miolo da nave (justo, estilo bullet hell)
   const playerBox = () => ({ x: state.player.x + 5, y: state.player.y + 3, w: 8, h: 5 });
+
+  // caixas de colisão dos projéteis inimigos (ovo/laser: canto; os novos: centro)
+  const SHOT_BOX = {
+    egg: (s) => ({ x: s.x + 1, y: s.y + 1, w: 4, h: 4 }),
+    laser: (s) => ({ x: s.x + 1, y: s.y, w: 4, h: 1 }),
+    eyeLaser: (s) => ({ x: s.x + 1, y: s.y, w: 4, h: 1 }),
+    orb: (s) => ({ x: s.x - 2, y: s.y - 2, w: 4, h: 4 }),
+    bigOrb: (s) => ({ x: s.x - 5, y: s.y - 5, w: 10, h: 10 }),
+    bubble: (s) => ({ x: s.x - 2, y: s.y - 2, w: 4, h: 4 }),
+    bolt: (s) => ({ x: s.x - 1, y: s.y - 1, w: 2, h: 2 }),
+  };
+
+  /* ---------- cenas: queda do pato -> Doutor Insano se ergue / morte do Doutor ---------- */
+  function updateCutscene(dt) {
+    const cs = state.cutscene;
+    cs.t += dt;
+    if (cs.kind === 'duckFall') {
+      const d = cs.duck;
+      if (cs.t < 1.5) {
+        // explosões em cima do pato
+        d.hurt = Math.random() < 0.4 ? 0.05 : 0;
+        d.x += rand(-1.5, 1.5);
+        if (Math.random() < 0.5) boom(d.x + rand(-6, 40), d.y + rand(-10, 44), 8, undefined, 130);
+        if (Math.random() < 0.14) sfx('explode');
+        shake(3);
+      } else if (cs.t < 3.1) {
+        if (!d.falling) {
+          d.falling = true;
+          d.vy = -90;
+          d.rot = 0;
+          sfx('fall');
+          popText(d.x - 10, d.y - 14, 'QUAAACK!', '#ffd23f', 1.4);
+        }
+        d.vy += 230 * dt;
+        d.y += d.vy * dt;
+        d.x -= 14 * dt;
+        d.rot -= 7 * dt;
+        if (Math.random() < 0.6) state.particles.push({ x: d.x + 20, y: d.y + 20, vx: rand(-10, 10), vy: -rand(10, 30), life: 0.8, max: 0.8, c: pick(['#6a6a80', '#8a8aa0']), s: 2, smoke: true });
+      } else if (!cs.landed) {
+        cs.landed = true;
+        state.boss = null;
+        boom(d.x + 20, H - 6, 80, undefined, 200);
+        sfx('explode');
+        shake(12);
+        cs.crazy = newCrazy();
+      }
+      if (cs.t > 3.6 && !cs.rising) {
+        cs.rising = true;
+        state.boss = cs.crazy;
+        sfx('rise');
+        state.banner = { title: 'CRAZY BOSS', sub: 'DOUTOR INSANO', t: 0, life: 3.8 };
+      }
+      if (cs.rising) {
+        const c = cs.crazy;
+        const target = H / 2 - 82;
+        c.y += (target - c.y) * Math.min(1, dt * 1.5);
+        c.bob += dt;
+        c.mood = cs.t > 6.1 ? 'laugh' : 'grit';
+        c.armF += ((cs.t > 6.1 ? -0.5 + Math.sin(c.bob * 14) * 0.25 : 0.2) - c.armF) * Math.min(1, dt * 6);
+        c.armB += ((cs.t > 6.1 ? -0.6 : 0.1) - c.armB) * Math.min(1, dt * 6);
+        animateCrazy(c, dt);
+        shake(cs.t < 6 ? 2.5 : 0);
+        if (cs.t < 6 && Math.random() < 0.7) state.particles.push({ x: c.x + rand(10, c.w - 10), y: H - 4, vx: rand(-40, 40), vy: -rand(20, 70), life: 0.9, max: 0.9, c: pick(['#6a6a80', '#8a5a3a', '#b0b0c0']), s: 2, smoke: true });
+      }
+      if (cs.t > 6.1 && !cs.laughed) {
+        cs.laughed = true;
+        const c = cs.crazy;
+        c.eyeGlow = 1;
+        sfx('laugh');
+        popText(c.x - 20, c.y + 6, 'MUAHAHAHA!', '#ff3b5c', 1.6);
+        // conserto de emergência da nave para a última batalha
+        const p = state.player;
+        const healed = Math.min(PLAYER_HP, p.hp + 3) - p.hp;
+        if (healed > 0) {
+          p.hp += healed;
+          popText(p.x - 8, p.y - 10, `REPARO +${healed} HP`, '#b6ff6a', 1.6);
+          sfx('heal');
+        }
+      }
+      if (cs.t > 7.3) {
+        const c = cs.crazy;
+        state.cutscene = null;
+        state.phase = 3;
+        audio?.setLayer(3);
+        c.st = 'taunt';
+        c.stT = 0;
+        state.bigTimer = 5;
+      }
+    } else if (cs.kind === 'crazyDeath') {
+      const b = cs.crazy;
+      b.hurt = Math.random() < 0.4 ? 0.05 : 0;
+      b.x += rand(-1.2, 1.2);
+      b.armF += (-0.9 + Math.sin(cs.t * 25) * 0.3 - b.armF) * Math.min(1, dt * 8);
+      b.armB += (-1.1 + Math.sin(cs.t * 21) * 0.3 - b.armB) * Math.min(1, dt * 8);
+      b.headRot = Math.sin(cs.t * 30) * 0.05;
+      b.mood = 'scream';
+      animateCrazy(b, dt);
+      if (Math.random() < 0.7) boom(b.x + rand(15, b.w - 15), b.y + rand(10, b.h - 10), 8, undefined, 140);
+      if (Math.random() < 0.16) sfx('explode');
+      shake(4);
+      if (cs.t > 1.3 && !cs.shattered) {
+        cs.shattered = true;
+        b.broken = true;
+        sfx('shatter');
+        const [tx, ty, tw, th] = CRAZY.tank;
+        for (let i = 0; i < 60; i++) {
+          const a = rand(-Math.PI, 0);
+          const v = rand(40, 160);
+          state.particles.push({ x: b.x + tx + rand(0, tw), y: b.y + ty + rand(0, th), vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.6, 1.2), max: 1.2, c: pick(['#7ee0ff', '#ffffff', '#3a8bd9']), s: pick([1, 2]), fall: true });
+        }
+      }
+      if (cs.t > 1.3) b.y += 40 * dt; // afunda
+      if (cs.t > 2.6 && !cs.done) {
+        cs.done = true;
+        boom(b.x + b.w / 2, b.y + b.h / 2, 120, undefined, 260);
+        shake(16);
+        sfx('explode');
+        const p = state.player;
+        state.score += 8000 + p.hp * 400 + Math.max(0, Math.round(420 - state.t)) * 20;
+        state.boss = null;
+        state.cutscene = null;
+        endGame('vitoria');
+      }
+    }
+  }
 
   /* ---------- atualização ---------- */
   function update(dt) {
@@ -588,9 +1329,10 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     p.inv = Math.max(0, p.inv - dt);
     p.cool -= dt;
     const firing = input.firing || (touch && input.has);
-    if (firing && p.cool <= 0 && !state.result && !state.transition) {
+    if (firing && p.cool <= 0 && !state.result && !state.transition && !state.cutscene) {
       state.shots.push({ x: p.x + 16, y: p.y + 4, w: 4, h: 2 });
       p.cool = 0.1;
+      sfx('shoot');
     }
 
     // tiros do jogador
@@ -598,16 +1340,37 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
       const s = state.shots[i];
       s.x += 420 * dt;
       let gone = s.x > W + 10;
-      if (!gone && b && !state.transition && hit(s, b)) {
+      if (!gone && b && !state.transition && !state.cutscene && hit(s, bossBox(b))) {
         gone = true;
         if (b.isShielded) {
           boom(s.x, s.y, 3, ['#7ee0ff', '#ffffff'], 40);
+          sfx('shield');
         } else {
           b.hp -= 1;
           b.hurt = 0.06;
+          if (b.kind === 'crazy') b.recoil = 1;
           state.score += 10;
           boom(s.x, s.y, 2, ['#ffffff', '#ffd23f'], 30);
+          sfx('hit');
           if (b.hp <= 0) bossDown();
+        }
+      }
+      if (!gone) {
+        for (const e of state.bigs) {
+          if (hit(s, e)) {
+            gone = true;
+            e.hp -= 1;
+            e.hurt = 0.06;
+            sfx('hit');
+            if (e.hp <= 0 && !e.dead) {
+              e.dead = true;
+              state.score += 300;
+              boom(e.x + e.w / 2, e.y + e.h / 2, 26, undefined, 110);
+              popText(e.x, e.y - 6, '+300', '#ffd23f', 0.9);
+              sfx('explode');
+            }
+            break;
+          }
         }
       }
       if (!gone) {
@@ -619,6 +1382,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
               m.dead = true;
               state.score += 50;
               boom(m.x + 4, m.y + 4, 10, undefined, 60);
+              sfx('pop');
             }
             break;
           }
@@ -628,7 +1392,14 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     }
 
     // chefe
-    if (b && !state.transition) (b.kind === 'mecha' ? updateMecha : updateDuck)(b, dt);
+    if (b && !state.transition && !state.cutscene) ({ mecha: updateMecha, duck: updateDuck, crazy: updateCrazy })[b.kind](b, dt);
+    if (state.cutscene) updateCutscene(dt);
+    updateBigs(dt);
+    updateHearts(dt);
+    if (state.banner) {
+      state.banner.t += dt;
+      if (state.banner.t > state.banner.life) state.banner = null;
+    }
 
     // transição: mecha explode, o pato sai na prancha
     if (state.transition) {
@@ -637,6 +1408,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
       b.x += rand(-1.5, 1.5);
       b.y += 6 * dt; // vai afundando
       if (Math.random() < 0.6) boom(b.x + rand(0, b.w), b.y + rand(0, b.h), 6, undefined, 120);
+      if (Math.random() < 0.12) sfx('explode');
       shake(3);
       if (state.transition <= 0) {
         boom(b.x + b.w / 2, b.y + b.h / 2, 90, undefined, 220);
@@ -644,6 +1416,8 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
         state.transition = 0;
         state.boss = newDuck(b.x + 14, b.y);
         state.phase = 2;
+        audio?.setLayer(2);
+        sfx('explode');
         popText(state.boss.x - 40, state.boss.y - 14, 'AGORA É PESSOAL!', '#ffd23f', 2);
       }
     }
@@ -656,6 +1430,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
       if (!m.dead && hit(m, playerBox())) {
         m.dead = true;
         boom(m.x + 4, m.y + 4, 12, undefined, 80);
+        sfx('pop');
         hurtPlayer(1);
       }
       if (m.x < -20) m.dead = true;
@@ -668,7 +1443,21 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
       const s = state.enemyShots[i];
       s.x += s.vx * dt;
       s.y += s.vy * dt;
-      const box = s.sprite === 'laser' ? { x: s.x + 1, y: s.y, w: 4, h: 1 } : { x: s.x + 1, y: s.y + 1, w: 4, h: 4 };
+      if (s.kind) s.t += dt;
+      if (s.kind === 'bubble') s.y += Math.sin(s.t * 9) * 22 * dt; // bolha balança
+      if (s.kind === 'bigOrb' && s.t > 1.1) {
+        // esfera grande explode em 10 menores
+        const off = Math.random();
+        for (let k = 0; k < 10; k++) {
+          const a = ((k + off) / 10) * Math.PI * 2;
+          state.enemyShots.push({ kind: 'orb', x: s.x, y: s.y, vx: Math.cos(a) * 90, vy: Math.sin(a) * 90, t: 0 });
+        }
+        boom(s.x, s.y, 10, ['#ffd23f', '#ff6ad5', '#ffffff'], 70);
+        sfx('orb');
+        state.enemyShots.splice(i, 1);
+        continue;
+      }
+      const box = SHOT_BOX[s.kind || s.sprite](s);
       if (hit(box, pb)) {
         state.enemyShots.splice(i, 1);
         hurtPlayer(1);
@@ -681,8 +1470,11 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     for (const pt of state.particles) {
       pt.x += pt.vx * dt;
       pt.y += pt.vy * dt;
-      pt.vx *= 0.96;
-      pt.vy *= 0.96;
+      if (pt.fall) pt.vy += 260 * dt; // cacos e água caem
+      else if (!pt.smoke) {
+        pt.vx *= 0.96;
+        pt.vy *= 0.96;
+      }
       pt.life -= dt;
     }
     state.particles = state.particles.filter((pt) => pt.life > 0);
@@ -705,12 +1497,29 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
       state.minions = [];
       popText(b.x - 20, b.y - 12, 'MECHA DESTRUÍDO!', '#ff8a1e', 2);
       shake(10);
-    } else {
+    } else if (b.kind === 'duck') {
+      // o pato leva uma chuva de explosões e cai... e o Doutor Insano se ergue
       boom(b.x + 12, b.y + 12, 60, undefined, 160);
       shake(12);
-      state.score += 5000 + state.player.hp * 300 + Math.max(0, Math.round(300 - state.t)) * 20;
-      endGame('vitoria');
+      sfx('explode');
+      state.score += 3000;
+      popText(b.x - 20, b.y - 12, 'PATO DERRUBADO!', '#ff8a1e', 2);
+      clearArena();
+      state.cutscene = { kind: 'duckFall', t: 0, duck: b };
+    } else {
+      sfx('explode');
+      popText(b.x, b.y - 4, 'NÃÃÃÃO! MEU AQUÁRIO!', '#7ee0ff', 2.2);
+      clearArena();
+      b.beam = null;
+      state.cutscene = { kind: 'crazyDeath', t: 0, crazy: b };
     }
+  }
+  function clearArena() {
+    state.enemyShots = [];
+    state.minions.forEach((m) => boom(m.x, m.y, 6));
+    state.bigs.forEach((e) => boom(e.x + e.w / 2, e.y + e.h / 2, 16, undefined, 100));
+    state.minions = [];
+    state.bigs = [];
   }
 
   /* ---------- desenho ---------- */
@@ -828,6 +1637,18 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
         g.fillStyle = 'rgba(126,224,255,0.12)';
         g.fill();
       }
+    } else if (b.kind === 'crazy') {
+      drawCrazy(b);
+    } else if (b.falling) {
+      // pato caindo, girando (sem a prancha)
+      if (duckImg.complete && duckImg.naturalWidth) {
+        g.save();
+        g.translate(Math.round(b.x + 20), Math.round(b.y + 12));
+        g.rotate(b.rot);
+        if (hurt) g.filter = 'brightness(3)';
+        g.drawImage(duckImg, 0, 4 * 32, 32, 32, -32, -32, 64, 64);
+        g.restore();
+      }
     } else {
       // pato na prancha voadora (sprite do próprio site, olhando para a esquerda)
       const y = b.y + Math.sin(b.bob * 5) * 2;
@@ -843,6 +1664,247 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
         g.filter = 'none';
       }
     }
+  }
+
+  /* Doutor Insano: boneco em camadas (propulsor, tronco que respira, braços com pivô,
+     aquário com rosto boiando, peixes, maxilar, olhos que seguem a nave) */
+  function drawCrazy(b) {
+    if (!(crazyImg.complete && crazyImg.naturalWidth)) return;
+    const { w, h, idx } = CRAZY;
+    const x = Math.round(b.x + b.recoil);
+    const y = Math.round(b.y + crazyBob(b));
+    const br = b.breath;
+    const layer = (name, dx = 0, dy = 0) => g.drawImage(crazyImg, idx[name] * w, 0, w, h, x + dx, y + dy, w, h);
+    const limb = (name, [px, py], ang, dy = 0) => {
+      g.save();
+      g.translate(x + px, y + py + dy);
+      if (ang) g.rotate(ang);
+      g.drawImage(crazyImg, idx[name] * w, 0, w, h, -px, -py, w, h);
+      g.restore();
+    };
+
+    // aviso do soco-foguete: faixa na altura do corpo e linha forte na do punho
+    if (b.st === 'punch' && b.sub === 'wind') {
+      const a = 0.12 + 0.1 * Math.sin(state.t * 40);
+      g.fillStyle = `rgba(255,59,92,${a})`;
+      g.fillRect(0, b.dashY + 22, W, 116);
+      g.fillStyle = `rgba(255,138,30,${a + 0.15})`;
+      g.fillRect(0, b.dashY + 100, W, 24);
+      g.fillStyle = '#ff3b5c';
+      g.font = 'bold 10px monospace';
+      g.fillText('!!', 8, b.dashY + 108);
+    }
+
+    // olhos-laser: mira (carregando) e raios (disparando)
+    if (b.beam) {
+      const eyes = CRAZY.eyes.map((e) => crazyPoint(b, e, 'head'));
+      const dx = Math.cos(b.beam.ang);
+      const dy = Math.sin(b.beam.ang);
+      const L = 800;
+      for (const e of eyes) {
+        if (!b.beam.on) {
+          g.strokeStyle = `rgba(255,59,92,${0.35 + 0.3 * Math.sin(state.t * 50)})`;
+          g.lineWidth = 1;
+          g.setLineDash([4, 3]);
+          g.beginPath();
+          g.moveTo(e.x, e.y);
+          g.lineTo(e.x + dx * L, e.y + dy * L);
+          g.stroke();
+          g.setLineDash([]);
+        } else {
+          const wob = Math.sin(state.t * 60);
+          for (const [lw, c] of [[7 + wob, 'rgba(255,59,92,0.35)'], [4, '#ff3b5c'], [1.5, '#ffffff']]) {
+            g.strokeStyle = c;
+            g.lineWidth = lw;
+            g.beginPath();
+            g.moveTo(e.x, e.y);
+            g.lineTo(e.x + dx * L, e.y + dy * L);
+            g.stroke();
+          }
+        }
+      }
+    }
+
+    g.save();
+    if (b.lean || b.vy) {
+      // inclina o corpo inteiro a partir do propulsor (e um pouco conforme sobe/desce)
+      const lean = b.lean + clamp(b.vy * 0.0009, -0.06, 0.06);
+      g.translate(x + w / 2, y + CRAZY.waist);
+      g.rotate(lean);
+      g.translate(-(x + w / 2), -(y + CRAZY.waist));
+    }
+
+    // chama do propulsor (atrás de tudo): núcleo branco, plasma ciano, borda azul
+    const [fx, fy] = CRAZY.thruster;
+    const power = clamp(1 - b.vy * 0.006, 0.5, 2.2) * (b.st === 'punch' && b.sub === 'go' ? 0.6 : 1);
+    for (let i = -7; i <= 7; i++) {
+      const edge = Math.abs(i) / 7;
+      const len = Math.max(1, Math.round((17 - edge * 12) * power + rand(-2, 2)));
+      for (let j = 0; j < len; j++) {
+        const k = j / len;
+        g.fillStyle = edge < 0.3 && k < 0.45 ? '#ffffff' : edge < 0.65 && k < 0.75 ? '#7ee0ff' : k < 0.9 ? '#3a8bd9' : 'rgba(58,139,217,0.5)';
+        g.fillRect(x + fx + i, y + fy + j, 1, 1);
+      }
+    }
+    if (Math.random() < 0.5) {
+      // faíscas de plasma soltas
+      const pt = crazyPoint(b, [fx + rand(-5, 5), fy + 4]);
+      state.particles.push({ x: pt.x, y: pt.y, vx: rand(-15, 15), vy: rand(40, 90), life: 0.35, max: 0.35, c: pick(['#7ee0ff', '#ffffff', '#3a8bd9']), s: 1 });
+    }
+    g.fillStyle = `rgba(126,224,255,${0.12 + Math.random() * 0.08})`;
+    g.beginPath();
+    g.ellipse(x + fx, y + fy + 6, 13, 9 * power, 0, 0, Math.PI * 2);
+    g.fill();
+
+    if (b.hurt > 0) g.filter = 'brightness(2.6)';
+    layer('lower');
+    layer('thruster');
+    limb('armBack', CRAZY.pivots.armBack, b.armB, br);
+    layer('upper', 0, br);
+
+    // aquário (com tudo que está dentro) gira junto, a partir da base do vidro
+    const [hx, hy] = CRAZY.pivots.head;
+    g.save();
+    g.translate(x + hx, y + hy + br);
+    g.rotate(b.headRot);
+    g.translate(-(x + hx), -(y + hy));
+    layer('tank');
+    const [tx, ty, tw, th] = CRAZY.tank;
+    g.save();
+    g.beginPath();
+    g.rect(x + tx, y + ty, tw, th); // nada sai do vidro
+    g.clip();
+    // peixes
+    for (const f of b.fish) {
+      const [bx, by, bw, bh] = CRAZY.fish[f.n];
+      const cx = x + bx + bw / 2 + Math.round(f.ox);
+      const cy = y + by + bh / 2 + Math.round(f.oy);
+      g.save();
+      g.translate(Math.round(cx), Math.round(cy));
+      // o sprite original nada para um lado; vira quando muda de direção
+      if (f.dir !== FISH_FACING[f.n]) g.scale(-1, 1);
+      g.drawImage(crazyImg, idx[f.n] * w + bx, by, bw, bh, -Math.round(bw / 2), -Math.round(bh / 2), bw, bh);
+      g.restore();
+    }
+    // rosto boiando + maxilar
+    const fx2 = x + b.faceX;
+    const fy2 = y + b.faceY;
+    g.drawImage(crazyImg, idx.head * w, 0, w, h, fx2, fy2, w, h);
+    const jaw = Math.round(b.jaw);
+    if (jaw > 0) {
+      const [jx, jy, jw] = CRAZY.jaw;
+      g.fillStyle = '#2a0b12'; // boca aberta
+      g.fillRect(fx2 + jx + 3, fy2 + jy - 1, jw - 6, jaw + 1);
+      g.fillStyle = '#7a1e2a'; // língua
+      g.fillRect(fx2 + jx + 6, fy2 + jy + jaw - 1, jw - 12, 1);
+    }
+    g.drawImage(crazyImg, idx.jaw * w, 0, w, h, fx2, fy2 + jaw, w, h);
+    // olhos: brancos arregalados, pupilas seguindo a nave, piscadas e olhar de dor
+    const squint = b.blink > 0 || b.mood === 'hurt';
+    for (const [ex, ey] of CRAZY.eyes) {
+      const X = fx2 + ex;
+      const Y = fy2 + ey;
+      if (squint) {
+        g.fillStyle = '#b07a58';
+        g.fillRect(X - 2, Y - 1, 5, 2);
+        g.fillStyle = '#2a140e';
+        g.fillRect(X - 2, Y, 5, 1);
+      } else {
+        g.fillStyle = '#f4f0e6';
+        g.fillRect(X - 2, Y - 1, 5, 2);
+        g.fillStyle = b.eyeGlow > 0.3 ? '#ff3b5c' : '#140c10';
+        g.fillRect(X + b.look - (b.look < 0 ? 1 : 0), Y - 1 + (b.lookY > 0 ? 1 : 0), 2, b.lookY ? 1 : 2);
+      }
+    }
+    // bolhas
+    if (!b.broken) {
+      for (const bb of b.bubbles) {
+        g.fillStyle = 'rgba(220,250,255,0.85)';
+        g.fillRect(Math.round(x + tx + bb.x * tw), Math.round(y + ty + bb.y * th), 1, 1);
+      }
+    }
+    g.restore(); // fim do recorte do vidro
+    // rachaduras no vidro quando está quase derrotado
+    if (b.hp / b.max < 0.35 || b.broken) {
+      g.strokeStyle = 'rgba(255,255,255,0.8)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(x + tx + 6, y + ty + 4);
+      g.lineTo(x + tx + 12, y + ty + 14);
+      g.lineTo(x + tx + 9, y + ty + 22);
+      g.moveTo(x + tx + 12, y + ty + 14);
+      g.lineTo(x + tx + 20, y + ty + 17);
+      if (b.hp / b.max < 0.18 || b.broken) {
+        g.moveTo(x + tx + tw - 4, y + ty + 30);
+        g.lineTo(x + tx + tw - 12, y + ty + 36);
+        g.lineTo(x + tx + tw - 10, y + ty + 44);
+        g.moveTo(x + tx + tw - 12, y + ty + 36);
+        g.lineTo(x + tx + tw - 20, y + ty + 34);
+      }
+      g.stroke();
+    }
+    // olhos brilhando (laser) por cima das lentes
+    if (b.eyeGlow > 0) {
+      for (const [ex, ey] of CRAZY.eyes) {
+        g.fillStyle = `rgba(255,59,92,${0.4 * b.eyeGlow})`;
+        g.fillRect(fx2 + ex - 4, fy2 + ey - 3, 9, 6);
+      }
+    }
+    g.restore(); // fim do giro do aquário
+
+    // garra da frente por cima de tudo (com espasmos)
+    limb('armFront', CRAZY.pivots.armFront, b.armF + (b.twitch > 0 ? Math.sin(b.twitch * 90) * 0.12 : 0), br);
+    g.filter = 'none';
+
+    // núcleo do pato pulsando + luzes do painel piscando
+    const [cx, cy] = CRAZY.core;
+    const pulse = 0.5 + 0.5 * Math.sin(state.t * (b.coreGlow ? 18 : 4));
+    g.fillStyle = `rgba(255,210,63,${0.15 + 0.35 * pulse * Math.max(0.3, b.coreGlow)})`;
+    g.beginPath();
+    g.arc(x + cx, y + cy + br, 7 + 3 * pulse * b.coreGlow, 0, Math.PI * 2);
+    g.fill();
+    CRAZY.lights.forEach(([lx, ly], i) => {
+      if (Math.floor(state.t * 3 + i * 1.3) % 3 === 0) {
+        g.fillStyle = i % 2 ? '#b6ff6a' : '#ff3b5c';
+        g.fillRect(x + lx - 1, y + ly - 1 + br, 2, 2);
+      }
+    });
+    g.restore();
+  }
+
+  function drawBigs() {
+    for (const e of state.bigs) {
+      const img = (e.type === 'piranha' ? S.piranha : S.drone)[Math.floor(e.frame) % 2];
+      if (e.hurt > 0) g.filter = 'brightness(3)';
+      drawSprite(img, e.x, e.y);
+      g.filter = 'none';
+    }
+  }
+
+  function drawBanner() {
+    const bn = state.banner;
+    if (!bn) return;
+    const a = Math.min(1, bn.t * 3, (bn.life - bn.t) * 2);
+    g.globalAlpha = a;
+    g.fillStyle = 'rgba(10,4,20,0.65)';
+    g.fillRect(0, H * 0.3, W, 50);
+    g.fillStyle = '#ff3b5c';
+    g.fillRect(0, H * 0.3, W, 2);
+    g.fillRect(0, H * 0.3 + 48, W, 2);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = 'bold 22px monospace';
+    const wobble = Math.round(Math.sin(bn.t * 30) * (bn.t < 0.6 ? 2 : 0));
+    g.fillStyle = '#140c24';
+    g.fillText(bn.title, W / 2 + 2, H * 0.3 + 19 + 2);
+    g.fillStyle = '#ffd23f';
+    g.fillText(bn.title, W / 2 + wobble, H * 0.3 + 19);
+    g.font = 'bold 10px monospace';
+    g.fillStyle = '#ff6ad5';
+    g.fillText(`— ${bn.sub} —`, W / 2, H * 0.3 + 38);
+    g.textAlign = 'start';
+    g.textBaseline = 'alphabetic';
+    g.globalAlpha = 1;
   }
 
   function drawHUD() {
@@ -864,18 +1926,18 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
       const bw = Math.min(180, W * 0.38);
       const x = W - bw - 8;
       g.fillStyle = '#ffffff';
-      const name = b.kind === 'mecha' ? 'MECHA PATO' : 'PATO (FURIOSO)';
+      const name = { mecha: 'MECHA PATO', duck: 'PATO (FURIOSO)', crazy: 'CRAZY BOSS — DR. INSANO' }[b.kind];
       g.fillText(name, x, 4);
       g.fillStyle = '#140c24';
       g.fillRect(x, 13, bw, 6);
-      g.fillStyle = b.isShielded ? '#7ee0ff' : b.kind === 'mecha' ? '#ff8a1e' : '#ff3b5c';
+      g.fillStyle = b.isShielded ? '#7ee0ff' : { mecha: '#ff8a1e', duck: '#ff3b5c', crazy: '#ff6ad5' }[b.kind];
       g.fillRect(x + 1, 14, Math.max(0, (bw - 2) * (b.hp / b.max)), 4);
     }
     g.fillStyle = '#ffd23f';
     const sc = `${state.score}`.padStart(6, '0');
     g.fillText(sc, W / 2 - sc.length * 2.2, 6);
     g.fillStyle = 'rgba(255,255,255,0.5)';
-    g.fillText(`FASE ${state.phase}/2`, W / 2 - 14, 15);
+    g.fillText(`FASE ${state.phase}/3`, W / 2 - 14, 15);
   }
 
   function draw() {
@@ -887,14 +1949,27 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     if (b) drawBoss(b);
 
     for (const m of state.minions) drawSprite(S.minion[Math.floor(m.frame) % 2], m.x, m.y);
+    drawBigs();
+    drawHearts();
 
     for (const s of state.enemyShots) {
-      if (s.sprite === 'laser') {
+      if (s.kind) {
+        // projéteis desenhados pelo centro (esferas, bolhas, faíscas)
+        const img = { orb: S.orb, bigOrb: S.orb2, bubble: S.bubble, bolt: S.bolt }[s.kind];
+        if (s.kind === 'orb' || s.kind === 'bigOrb') {
+          const rr = s.kind === 'bigOrb' ? 9 + Math.sin(s.t * 20) * 2 : 5;
+          g.fillStyle = 'rgba(255,138,30,0.3)';
+          g.beginPath();
+          g.arc(Math.round(s.x), Math.round(s.y), rr, 0, Math.PI * 2);
+          g.fill();
+        }
+        drawSprite(img, s.x - img.width / 2, s.y - img.height / 2);
+      } else if (s.sprite === 'laser' || s.sprite === 'eyeLaser') {
         g.save();
         g.translate(Math.round(s.x + 3), Math.round(s.y));
         g.rotate(s.ang ?? Math.PI);
         g.scale(-1, 1);
-        g.drawImage(S.laser, -3, 0);
+        g.drawImage(S[s.sprite], -3, 0);
         g.restore();
       } else drawSprite(S.egg, s.x, s.y);
     }
@@ -922,6 +1997,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     }
     g.globalAlpha = 1;
     g.restore();
+    drawBanner();
 
     if (state.flash) {
       g.fillStyle = `rgba(255,59,92,${state.flash})`;
@@ -939,10 +2015,12 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     if (isRecord) saveRecord({ score: state.score, date: Date.now() });
     // mostra mais alguns quadros da explosão antes do placar
     state.endIn = 1.2;
+    audio?.stopMusic(0.5);
+    sfx(result === 'vitoria' ? 'victory' : 'defeat');
     endBox.querySelector('.duck-game__title').textContent = result === 'vitoria' ? 'VITÓRIA!' : 'GAME OVER';
     endBox.querySelector('.duck-game__sub').textContent =
       result === 'vitoria'
-        ? 'Impossível… o pato perdeu. Ele vai negar isso pra sempre.'
+        ? 'Impossível… o Doutor Insano caiu e o pato perdeu. Ele vai negar isso pra sempre.'
         : pick(['Quack quack. Perdeu pro pato.', 'Tenta de novo. Ou não. O pato não liga.', 'Seu recorde é bonitinho. O meu é infinito.']);
     endBox.querySelector('.duck-game__stats').textContent =
       `Pontos: ${state.score}  •  Tempo: ${Math.round(state.t)}s  •  ${isRecord ? 'NOVO RECORDE!' : `Recorde: ${Math.max(record.score || 0, state.score)}`}`;
@@ -961,6 +2039,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
   function frame(now) {
     if (!running) return;
     raf = requestAnimationFrame(frame);
+    audio?.tick(); // agenda as próximas notas da música
     const elapsed = Math.max(0, Math.min(0.25, (now - (last || now)) / 1000)); // aba que travou não "pula" o jogo
     last = now;
     acc += elapsed;
@@ -999,7 +2078,11 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     if (document.hidden) {
       running = false;
       cancelAnimationFrame(raf);
-    } else if (!state.result && endBox.hidden) loopStart();
+      audio?.pause();
+    } else {
+      audio?.resume();
+      if (!state.result && endBox.hidden) loopStart();
+    }
   });
 
   /* ---------- limpeza total ---------- */
@@ -1010,6 +2093,7 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
     running = false;
     cancelAnimationFrame(raf);
     ctrl.abort(); // remove TODOS os listeners registrados pelo jogo
+    audio?.close(); // encerra o som (música e efeitos param na hora)
     wrap.remove();
     html.style.overflow = saved.htmlOverflow;
     document.body.style.overflow = saved.bodyOverflow;
@@ -1025,7 +2109,8 @@ export function startDuckGame({ duckSpriteUrl, onExit } = {}) {
   }
 
   reset();
+  audio?.startMusic();
   loopStart();
-  if (import.meta.env?.DEV) window.__duckGame = { get state() { return state; } };
+  if (import.meta.env?.DEV) window.__duckGame = { get state() { return state; }, audio, crazyNext: (st) => { const b = state.boss; for (let i = 0; i < 60; i++) { b.last = ""; crazyNextState(b); if (!st || b.st === st) break; } } };
   return cleanup;
 }
