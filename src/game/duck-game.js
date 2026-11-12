@@ -102,6 +102,30 @@ function upscale(src, k) {
   return c;
 }
 
+/** Nave do jogador, 18x11 (mesmo tamanho da anterior). Cada letra é uma cor de SHIP_PAL. */
+const SHIP_ROWS = [
+  '.oo.......oooo....',
+  'oBRo.....oBRCCo...',
+  'oBWRo...oBBLCCco..',
+  '.oBRRoooKSSCCccco.',
+  '..oWWWWWKKKwwwwWo.',
+  'KGoWBYWWWWWWWRRBBo',
+  'KGowWWWWRYEWWWWBBB',
+  'KGoGgwwwbbbbbbbbo.',
+  'oBBBBoRRRrbbbbbo..',
+  'oBWBBoRrGGGGGo....',
+  '.oRRo..oGGGo......',
+];
+const SHIP_PAL = {
+  o: '#140c24', W: '#f4f6ff', w: '#c8d0e0', g: '#8a94b0', G: '#4a5068', B: '#2a5ad9', b: '#1a2f80',
+  C: '#c8f4ff', c: '#5ab8f0', R: '#e0303a', r: '#9a1a2a', Y: '#ffd23f', S: '#f0b080', K: '#2a2a3a',
+  L: '#7ee0ff', E: '#b6ff6a',
+};
+// piloto (capacete, óculos, rosto, jaqueta): no corpo da nave, o lugar dele vira vidro
+const PILOT_AT = (x, y) => (y === 1 && x >= 10 && x <= 11) || (y === 2 && x >= 9 && x <= 11) || (y === 3 && x >= 8 && x <= 10);
+const PILOT_GLASS = { 1: 'C', 2: 'C', 3: 'c' };
+const SHIP = { cannon: [13, 9], exhausts: [5, 6, 7], lights: [[8, 6], [9, 6], [10, 6]], wingTip: [2, 10] };
+
 const PAL = {
   o: '#140c24', w: '#ffffff', c: '#7ee0ff', C: '#3a8bd9', b: '#2a3a6a', g: '#9aa4c8', G: '#5a6488',
   y: '#ffd23f', Y: '#e8a816', O: '#ff8a1e', r: '#ff3b5c', R: '#a8142e', p: '#ff6ad5', P: '#b02a8a',
@@ -110,23 +134,11 @@ const PAL = {
 
 function buildSprites() {
   const s = {
-    ship: sprite([
-      '....oooo..........',
-      '...occcco.........',
-      '..occwccooooo.....',
-      'oobbbbbbbbbbbbo...',
-      'oCCCCCCCCCCCCCCoo.',
-      'orrCcccccccccCCCCo',
-      'oCCCCCCCCCCCCCCoo.',
-      'oobbbbbbbbbbbbo...',
-      '..occCccooooo.....',
-      '...occcco.........',
-      '....oooo..........',
-    ], PAL),
-    flame: [
-      sprite(['.oo', 'oyO', 'OOy', 'oyO', '.oo'], PAL),
-      sprite(['..oo', 'oyyO', 'yOOy', 'oyyO', '..oo'], PAL),
-    ],
+    // nave do jogador (arte de scripts/ref/hero-ship.jpg em 18x11): jato branco, azul e
+    // vermelho, deriva com estrela, cabine de vidro, canhão por baixo. O piloto é uma
+    // camada à parte (balança dentro da cabine) e as chamas são desenhadas no jogo.
+    ship: sprite(SHIP_ROWS.map((r, y) => [...r].map((ch, x) => (PILOT_AT(x, y) ? PILOT_GLASS[y] ?? ch : ch)).join('')), SHIP_PAL),
+    pilot: sprite(SHIP_ROWS.map((r, y) => [...r].map((ch, x) => (PILOT_AT(x, y) ? ch : '.')).join('')), SHIP_PAL),
     shot: sprite(['wccc', 'wccc'], PAL),
     egg: sprite(['.okko.', 'okeKko', 'okkkKo', 'okkkKo', 'okkKKo', '.oKKo.'], PAL),
     laser: sprite(['wpppPP'], PAL),
@@ -426,7 +438,7 @@ export function startDuckGame({
       shake: 0,
       flash: 0,
       bgX: PARALLAX_LAYERS.map(() => 0),
-      player: { x: W * 0.2, y: H / 2, hp: PLAYER_HP, inv: 1.5, cool: 0 },
+      player: { x: W * 0.2, y: H / 2, hp: PLAYER_HP, inv: 1.5, cool: 0, vx: 0, vy: 0, bank: 0, muzzle: 0, recoil: 0, nod: 0, nodIn: 1.5, glint: 3 },
       shots: [],
       enemyShots: [],
       minions: [],
@@ -1415,14 +1427,33 @@ export function startDuckGame({
     PARALLAX_LAYERS.forEach((l, i) => (state.bgX[i] = (state.bgX[i] + l.speed * dt) % 100000));
 
     // jogador segue o cursor exatamente (dentro da tela)
+    const lastX = p.x;
+    const lastY = p.y;
     p.x = clamp(input.x - 9, 2, W - 20);
     p.y = clamp(input.y - 5, 14, H - 12);
+    // velocidade suavizada: inclina a nave e muda o tamanho das chamas
+    p.vx += ((p.x - lastX) / dt - p.vx) * Math.min(1, dt * 10);
+    p.vy += ((p.y - lastY) / dt - p.vy) * Math.min(1, dt * 10);
+    p.bank += (clamp(p.vy * 0.0018, -0.22, 0.22) - p.bank) * Math.min(1, dt * 12);
+    p.muzzle = Math.max(0, p.muzzle - dt);
+    p.recoil = Math.max(0, p.recoil - dt * 14);
+    // piloto: balança de vez em quando e se encolhe quando a nave leva dano
+    p.nodIn -= dt;
+    if (p.nodIn <= 0) {
+      p.nod = 0.22;
+      p.nodIn = rand(1.2, 3);
+    }
+    p.nod = Math.max(0, p.nod - dt);
+    p.glint -= dt;
+    if (p.glint < -0.5) p.glint = rand(2, 4); // reflexo correndo pelo vidro
     p.inv = Math.max(0, p.inv - dt);
     p.cool -= dt;
     const firing = input.firing || (touch && input.has);
     if (firing && p.cool <= 0 && !state.result && !state.transition && !state.cutscene) {
-      state.shots.push({ x: p.x + 16, y: p.y + 4, w: 4, h: 2 });
+      state.shots.push({ x: p.x + SHIP.cannon[0], y: p.y + SHIP.cannon[1] - 1, w: 4, h: 2 });
       p.cool = 0.1;
+      p.muzzle = 0.05; // clarão na boca do canhão
+      p.recoil = 1;
       sfx('shoot');
     }
 
@@ -2156,6 +2187,68 @@ export function startDuckGame({
     g.globalAlpha = 1;
   }
 
+  /* nave do jogador: chamas azuis pulsando, inclinação, piloto, luzes, clarão do canhão */
+  function drawShip(p) {
+    const x = Math.round(p.x);
+    const y = Math.round(p.y);
+    g.save();
+    g.translate(x, y);
+    // inclinação em pixel art (sem girar, que borraria): subindo, a metade da frente
+    // sobe 1 px; descendo, desce 1 px
+    const tilt = p.bank > 0.08 ? 1 : p.bank < -0.08 ? -1 : 0;
+    // chamas dos 3 motores (maiores acelerando para a frente, menores recuando)
+    const power = clamp(1 + p.vx * 0.004, 0.45, 1.9);
+    SHIP.exhausts.forEach((row, i) => {
+      const len = Math.max(1, Math.round((i === 2 ? 3 : 5) * power + rand(-1, 1.4)));
+      for (let k = 0; k < len; k++) {
+        const t = k / len;
+        g.fillStyle = t < 0.3 ? '#ffffff' : t < 0.6 ? '#7ee0ff' : t < 0.85 ? '#3a8bd9' : 'rgba(42,90,217,0.6)';
+        g.fillRect(-1 - k, row, 1, 1);
+        if (k > 0 && k < len - 1 && Math.random() < 0.35) {
+          g.fillStyle = 'rgba(126,224,255,0.55)'; // franja da chama
+          g.fillRect(-1 - k, row + (Math.random() < 0.5 ? -1 : 1), 1, 1);
+        }
+      }
+    });
+    const rx = -Math.round(p.recoil);
+    g.drawImage(S.ship, 0, 0, 9, 11, rx, 0, 9, 11); // metade de trás
+    g.drawImage(S.ship, 9, 0, 9, 11, rx + 9, tilt, 9, 11); // metade da frente
+    // piloto: se abaixa no dano e balança a cabeça de vez em quando
+    const pdy = (p.inv > 0.8 ? 1 : p.nod > 0 ? 1 : 0) + tilt;
+    g.drawImage(S.pilot, rx, pdy);
+    g.translate(0, tilt); // o que vem a seguir está na metade da frente
+    // reflexo correndo pelo vidro da cabine
+    if (p.glint > -0.5 && p.glint < 0) {
+      const gx = 12 + Math.round((p.glint + 0.5) * 8);
+      g.fillStyle = '#ffffff';
+      g.fillRect(gx, 2 + Math.max(0, gx - 14), 1, 1);
+    }
+    // luzes do painel em sequência + ponta da asa piscando
+    const li = Math.floor(state.t * 6) % 3;
+    const [lx, ly] = SHIP.lights[li];
+    g.fillStyle = '#ffffff';
+    g.fillRect(lx, ly - (lx < 9 ? tilt : 0), 1, 1);
+    if (Math.floor(state.t * 2) % 2) {
+      g.fillStyle = '#ff3b5c';
+      g.fillRect(SHIP.wingTip[0], SHIP.wingTip[1] - tilt, 1, 1); // ponta da asa (metade de trás)
+    }
+    // clarão do canhão
+    if (p.muzzle > 0) {
+      const [cx, cy] = SHIP.cannon;
+      g.fillStyle = '#ffffff';
+      g.fillRect(cx, cy - 1, 2, 1);
+      g.fillStyle = '#ffd23f';
+      g.fillRect(cx + 2, cy - 1, 1, 1);
+      g.fillRect(cx + 1, cy - 2, 1, 1);
+      g.fillRect(cx + 1, cy, 1, 1);
+    }
+    g.restore();
+    // fumaça quando a nave está quase destruída
+    if (p.hp <= 3 && Math.random() < 0.3) {
+      state.particles.push({ x: p.x + 4, y: p.y + 4, vx: -rand(20, 40), vy: -rand(5, 15), life: 0.7, max: 0.7, c: pick(['#6a6a80', '#8a8aa0', '#4a4a5a']), s: 2, smoke: true });
+    }
+  }
+
   function drawHUD() {
     const p = state.player;
     const b = state.boss;
@@ -2226,8 +2319,7 @@ export function startDuckGame({
 
     const p = state.player;
     if (!(p.inv > 0 && Math.floor(state.t * 20) % 2) && p.hp > 0) {
-      drawSprite(S.flame[Math.floor(state.t * 16) % 2], p.x - 3, p.y + 3);
-      drawSprite(S.ship, p.x, p.y);
+      drawShip(p);
     }
 
     for (const pt of state.particles) {
