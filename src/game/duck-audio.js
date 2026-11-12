@@ -6,7 +6,8 @@
  *    "lookahead" no relógio do AudioContext: sem setInterval/setTimeout.
  *  - Canais estilo console 8-bit: 2 pulsos (melodia/harmonia), triângulo (baixo),
  *    pulso fino (arpejo) e ruído (bateria).
- *  - A música é a mesma do começo ao fim, mas ganha camadas a cada fase.
+ *  - Música: uma faixa (`musicUrl`, tocada em loop, recomeça sempre que acaba).
+ *    Se a faixa não carregar, entra a trilha 8-bit sintetizada, que ganha camadas a cada fase.
  *  - Cada arma tem um som próprio (nave, ovos do mecha, laser do pato, olhos-laser,
  *    esferas do núcleo, bolhas da piranha, faíscas do drone...).
  */
@@ -69,7 +70,7 @@ function pulseWave(ctx, duty) {
   return ctx.createPeriodicWave(real, imag);
 }
 
-export function createDuckAudio({ muted = false } = {}) {
+export function createDuckAudio({ muted = false, musicUrl = null } = {}) {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return null;
   let ctx;
@@ -146,7 +147,38 @@ export function createDuckAudio({ muted = false } = {}) {
     s.stop(t + dur + 0.02);
   }
 
-  /* ---------- música ---------- */
+  /* ---------- música em arquivo (stream pelo <audio>, sem decodificar tudo na memória) ---------- */
+  let track = null;
+  let useTrack = false;
+  if (musicUrl) {
+    try {
+      track = new Audio();
+      track.preload = 'auto';
+      track.loop = true; // acabou, recomeça do início
+      track.src = musicUrl;
+      ctx.createMediaElementSource(track).connect(musicBus); // passa pelo mudo e pelo compressor
+      useTrack = true;
+      track.addEventListener('error', () => {
+        // não carregou: volta para a trilha sintetizada
+        useTrack = false;
+        if (wantMusic) startSynth();
+      });
+    } catch {
+      track = null;
+    }
+  }
+  let wantMusic = false;
+  let starting = false;
+  const playTrack = () => {
+    if (!track || !useTrack || !wantMusic || starting || ctx.state !== 'running' || !track.paused) return;
+    starting = true;
+    track.play().then(
+      () => (starting = false),
+      () => (starting = false),
+    );
+  };
+
+  /* ---------- música sintetizada (reserva) ---------- */
   let playing = false;
   let layer = 1; // 1 = fase 1, 2 = fase 2, 3 = Doutor Insano
   let nextT = 0;
@@ -402,6 +434,15 @@ export function createDuckAudio({ muted = false } = {}) {
     },
   };
 
+  function startSynth() {
+    playing = true;
+    songPos = 0;
+    step = 0;
+    leadIdx = 0;
+    leadLeft = 0;
+    nextT = ctx.currentTime + 0.08;
+  }
+
   let isMuted = muted;
   const api = {
     play(name, ...args) {
@@ -409,27 +450,43 @@ export function createDuckAudio({ muted = false } = {}) {
       FX[name](ctx.currentTime + 0.005, ...args);
     },
     startMusic() {
-      playing = true;
-      songPos = 0;
-      step = 0;
-      leadIdx = 0;
-      leadLeft = 0;
-      layer = 1;
-      nextT = ctx.currentTime + 0.08;
+      wantMusic = true;
       musicBus.gain.cancelScheduledValues(ctx.currentTime);
-      musicBus.gain.setValueAtTime(0.55, ctx.currentTime);
+      musicBus.gain.setValueAtTime(useTrack ? 0.6 : 0.55, ctx.currentTime);
+      if (useTrack) {
+        track.currentTime = 0;
+        playTrack();
+        return;
+      }
+      startSynth();
     },
     stopMusic(fade = 0.6) {
+      wantMusic = false;
       playing = false;
       const t = ctx.currentTime;
       musicBus.gain.cancelScheduledValues(t);
       musicBus.gain.setValueAtTime(musicBus.gain.value, t);
       musicBus.gain.linearRampToValueAtTime(0.0001, t + fade);
+      if (track && !track.paused) {
+        const el = track;
+        // pausa depois do fade (contado pelo relógio do áudio, sem setTimeout)
+        const stopAt = t + fade;
+        const check = () => {
+          if (wantMusic) return;
+          if (ctx.currentTime >= stopAt || ctx.state !== 'running') el.pause();
+          else requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+      }
     },
     setLayer(n) {
       layer = n;
     },
-    tick,
+    tick() {
+      if (useTrack) playTrack(); // garante que a faixa volte depois de um desbloqueio/pausa
+      else tick();
+    },
+    // (a trilha sintetizada é iniciada por startSynth)
     get muted() {
       return isMuted;
     },
@@ -441,16 +498,24 @@ export function createDuckAudio({ muted = false } = {}) {
     },
     /** navegadores só liberam o som depois de um gesto: chamar em pointerdown/keydown */
     unlock() {
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      if (ctx.state === 'suspended') ctx.resume().then(playTrack, () => {});
+      else playTrack();
     },
     pause() {
+      track?.pause();
       if (ctx.state === 'running') ctx.suspend().catch(() => {});
     },
     resume() {
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      if (ctx.state === 'suspended') ctx.resume().then(playTrack, () => {});
     },
     close() {
       playing = false;
+      wantMusic = false;
+      if (track) {
+        track.pause();
+        track.removeAttribute('src'); // libera o download/stream
+        track.load();
+      }
       ctx.close().catch(() => {});
     },
   };
