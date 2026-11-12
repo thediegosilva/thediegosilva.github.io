@@ -11,7 +11,8 @@
  *  - Todos os eventos usam o mesmo AbortController: `abort()` remove todos de uma vez.
  *  - Resolução interna baixa (pixel art de verdade) ampliada sem suavização.
  *  - Chefe com máquina de estados: tiro, escudo, investida (dash) e lacaios.
- *    Fase 2: o mecha explode e o pato sai na prancha voadora.
+ *    Fase 1: Disco Voador do Pato. Fase 2: o disco explode e o pato volta na Moto-Turbina
+ *    (aponta e atira lasers pelo dedo). Os 3 chefes são pixel art em camadas animadas.
  *    Fase 3: o pato cai sob explosões e se ergue o CRAZY BOSS — DOUTOR INSANO
  *    (olhos-laser, socos-foguete, esferas do núcleo do pato e inimigos grandes).
  *  - Música 8-bit e efeitos sintetizados (duck-audio.js), com botão de mudo.
@@ -22,6 +23,7 @@
 
 import { createDuckAudio } from './duck-audio.js';
 import { CRAZY_DATA } from './crazyboss-data.js';
+import { BOSS1_DATA, BOSS2_DATA } from './boss-data.js';
 
 /* =========================================================================
    Configuração
@@ -41,6 +43,11 @@ const CRAZY = {
   idx: Object.fromEntries(CRAZY_DATA.frames.map((n, i) => [n, i])),
   lights: [[42, 87], [83, 106], [77, 112], [40, 94]],
 };
+/** Fases 1 e 2: folhas em camadas geradas por scripts/make-boss-sprites.py */
+const indexed = (d) => ({ ...d, idx: Object.fromEntries(d.frames.map((n, i) => [n, i])) });
+const SAUCER = indexed(BOSS1_DATA); // Disco Voador do Pato
+const BIKE = indexed(BOSS2_DATA); // Pato na Moto-Turbina
+
 /** para que lado cada peixe da arte olha (1 = direita, -1 = esquerda) */
 const FISH_FACING = { fishA: 1, fishB: -1, fishC: 1 };
 
@@ -147,38 +154,6 @@ function buildSprites() {
         '..oooo....',
       ], PAL),
     ],
-    // Mecha Pato (olhando para a esquerda): cabine de vidro com o pato dentro
-    mecha: sprite([
-      '..............oooooooooo..........',
-      '............oocccccccccoo.........',
-      '...........occwyyyyyycccco........',
-      '..........occyyyyyyyyyccccoo......',
-      '.........occyowyyyyyyyycccco......',
-      '........oOOOyyyyyyyyyyyycccco.....',
-      '.......oOOOOyyyyyyyyyyyyccccoo....',
-      '........oOOOyyyyyyyyyyyycccccoo...',
-      '.........occyyyyyyyyyycccccmmmo...',
-      '..........occccccccccccccmmmmmmo..',
-      '...oooooooommmmmmmmmmmmmmmmmMMMMo.',
-      '..oMMMMMMMmmmmmmmmmmmmmmmmmmmMMMMo',
-      '.oMrrMMMMMmmmrrmmmmmmmmmmmmmmMMMMo',
-      'ommmmmmmmmmmmrrmmmmmmmmmmmmmmMMMMo',
-      'oMMMMMMMMMmmmmmmmmMMMMmmmmmmmMMMo.',
-      '.oooooooooommmmmmMMMMMMmmmmmMMMo..',
-      '...........oMMMMMMMMMMMMMMMMMMo...',
-      '...........oMMMMmmmmmmmmMMMMMo....',
-      '..........oMMMMooooooooooMMMMo....',
-      '..........oMMMo..........oMMMo....',
-      '.........oMMMo............oMMMo...',
-      '.........orrro............orrro...',
-      '........oooooo............oooooo..',
-    ], PAL),
-    board: sprite([
-      '..oooooooooooooooooooooooo..',
-      '.opppppppppppppppppppppppPo.',
-      'oPPPPPPPPPPPPPPPPPPPPPPPPPPo',
-      '.oooooooooooooooooooooooooo.',
-    ], PAL),
   };
   // inimigos grandes da fase 3 (criações do Doutor Insano), desenhados em 2x
   const piranhaTop = [
@@ -231,8 +206,6 @@ function buildSprites() {
     '...oRo...',
     '....o....',
   ], { ...PAL, r: '#ff4f7a', R: '#c21f4a' });
-  s.mecha2 = upscale(s.mecha, 2);
-  s.board2 = upscale(s.board, 2);
   return s;
 }
 
@@ -363,10 +336,12 @@ export function startDuckGame({
   paintSound();
 
   const S = buildSprites();
-  const duckImg = new Image();
-  if (duckSpriteUrl) duckImg.src = duckSpriteUrl;
   const crazyImg = new Image();
   crazyImg.src = bossSpriteUrl;
+  const saucerImg = new Image();
+  saucerImg.src = bossSpriteUrl.replace('crazyboss.png', 'boss1.png');
+  const bikeImg = new Image();
+  bikeImg.src = bossSpriteUrl.replace('crazyboss.png', 'boss2.png');
   const layerImgs = PARALLAX_LAYERS.map((l) => {
     if (!l.image) return null;
     const im = new Image();
@@ -472,17 +447,23 @@ export function startDuckGame({
     input.y = H / 2;
   }
 
+  // vida comum aos chefes animados: piscadas, bico/maxilar, olhar, humor
+  const lifeState = () => ({
+    blink: 0, blinkIn: rand(1.2, 3), jaw: 0, jawT: 0, mood: 'grin', look: 0, lookY: 0,
+    vy: 0, prevY: 0, tilt: 0, recoil: 0, headRot: 0, duckDy: 0, fanA: 0, emit: 0,
+  });
   function newMecha() {
     return {
-      kind: 'mecha', x: W + 40, y: H / 2 - 24, w: 68, h: 46, hp: MECHA_HP, max: MECHA_HP,
-      st: 'enter', stT: 0, fire: 0, last: '', isShielded: false, dashY: 0, baseX: W - 90,
-      bob: 0, hurt: 0,
+      kind: 'mecha', x: W + 40, y: H / 2 - SAUCER.h / 2, w: SAUCER.w, h: SAUCER.h, hp: MECHA_HP, max: MECHA_HP,
+      st: 'enter', stT: 0, fire: 0, last: '', isShielded: false, dashY: 0, baseX: W - SAUCER.w - 10,
+      bob: 0, hurt: 0, antA: 0, antV: 0, ...lifeState(),
     };
   }
   function newDuck(x, y) {
     return {
-      kind: 'duck', x, y, w: 40, h: 44, hp: DUCK_HP, max: DUCK_HP,
-      st: 'taunt', stT: 0, fire: 0, last: '', isShielded: false, baseX: W - 70, ang: 0, hurt: 0, bob: 0,
+      kind: 'duck', x, y, w: BIKE.w, h: BIKE.h, hp: DUCK_HP, max: DUCK_HP,
+      st: 'taunt', stT: 0, fire: 0, last: '', isShielded: false, baseX: W - BIKE.w - 8, ang: 0, hurt: 0, bob: 0,
+      arm: 0, armKick: 0, tail: 0, ...lifeState(),
     };
   }
 
@@ -584,9 +565,9 @@ export function startDuckGame({
         if (b.fire <= 0) {
           const burst = Math.random() < 0.5;
           if (burst) {
-            for (const s of [-0.18, 0, 0.18]) aimed(b, 150 * r, s, 'egg', 4, 26);
+            for (const s of [-0.18, 0, 0.18]) aimed(b, 150 * r, s, 'egg', ...SAUCER.cannon);
           } else {
-            for (let i = -2; i <= 2; i++) state.enemyShots.push({ x: b.x + 4, y: b.y + 26, vx: -130 * r, vy: i * 28, sprite: 'egg', w: 6, h: 6 });
+            for (let i = -2; i <= 2; i++) state.enemyShots.push({ x: b.x + SAUCER.cannon[0], y: b.y + SAUCER.cannon[1], vx: -130 * r, vy: i * 28, sprite: 'egg', w: 6, h: 6 });
           }
           b.fire = 0.75 / r;
           sfx('egg');
@@ -596,7 +577,7 @@ export function startDuckGame({
       case 'shield': // Estado 2: escudo, tiros do jogador não causam dano
         followY(0.9 * r);
         if (b.fire <= 0) {
-          aimed(b, 110 * r, rand(-0.1, 0.1), 'egg', 4, 26);
+          aimed(b, 110 * r, rand(-0.1, 0.1), 'egg', ...SAUCER.cannon);
           b.fire = 0.55 / r;
           sfx('egg');
         }
@@ -609,7 +590,7 @@ export function startDuckGame({
         } else if (b.stT < 0.75 + 1.4) {
           b.x -= (560 + 140 * (r - 1)) * dt;
           if (b.x < -b.w - 10) b.x = W + 20; // atravessou: volta pela direita
-          if (hit(b, playerBox())) hurtPlayer(3);
+          if (hit(bossBox(b), playerBox())) hurtPlayer(3);
         } else {
           b.x += (b.baseX - b.x) * Math.min(1, dt * 4);
           if (b.stT > 2.9) mechaNextState(b);
@@ -618,15 +599,16 @@ export function startDuckGame({
       case 'minions': // Estado 4: lacaios perseguem o Y do jogador
         followY(0.8);
         if (b.fire <= 0) {
-          aimed(b, 120 * r, 0, 'egg', 4, 26);
+          aimed(b, 120 * r, 0, 'egg', ...SAUCER.cannon);
           b.fire = 1.1 / r;
           sfx('egg');
         }
         if (b.stT > 2.4) mechaNextState(b);
         break;
     }
-    // encostar no mecha também machuca
-    if (b.st !== 'dash' && hit(b, playerBox())) hurtPlayer(2);
+    animateSaucer(b, dt);
+    // encostar no disco também machuca
+    if (b.st !== 'dash' && hit(bossBox(b), playerBox())) hurtPlayer(2);
   }
 
   function duckNextState(b) {
@@ -658,7 +640,8 @@ export function startDuckGame({
       b.y += (target - b.y) * Math.min(1, dt * 3);
       b.x += (b.baseX + Math.sin(b.bob * 1.3) * 14 - b.x) * Math.min(1, dt * 3);
     };
-    const muzzle = { ox: 0, oy: 16 };
+    const f = bikeFinger(b); // os lasers saem do dedo que aponta
+    const muzzle = { ox: f.x - b.x, oy: f.y - b.y };
     switch (b.st) {
       case 'taunt':
         b.x += (b.baseX - b.x) * Math.min(1, dt * 2);
@@ -678,7 +661,7 @@ export function startDuckGame({
         if (b.fire <= 0) {
           b.ang += 0.16;
           const a = Math.PI + Math.sin(b.ang) * 0.75;
-          state.enemyShots.push({ x: b.x, y: b.y + 16, vx: Math.cos(a) * 210 * r, vy: Math.sin(a) * 210 * r, sprite: 'laser', w: 6, h: 1, ang: a });
+          state.enemyShots.push({ x: b.x + muzzle.ox, y: b.y + muzzle.oy, vx: Math.cos(a) * 210 * r, vy: Math.sin(a) * 210 * r, sprite: 'laser', w: 6, h: 1, ang: a });
           b.fire = 0.045 / r;
           sfx('duckLaser');
         }
@@ -691,7 +674,7 @@ export function startDuckGame({
           const off = Math.random();
           for (let i = 0; i < n; i++) {
             const a = ((i + off) / n) * Math.PI * 2;
-            state.enemyShots.push({ x: b.x + 18, y: b.y + 20, vx: Math.cos(a) * 120 * r, vy: Math.sin(a) * 120 * r, sprite: 'laser', w: 6, h: 1, ang: a });
+            state.enemyShots.push({ x: b.x + BIKE.w * 0.45, y: b.y + BIKE.h * 0.6, vx: Math.cos(a) * 120 * r, vy: Math.sin(a) * 120 * r, sprite: 'laser', w: 6, h: 1, ang: a });
           }
           b.fire = 0.7 / r;
           sfx('ring');
@@ -705,7 +688,7 @@ export function startDuckGame({
         } else if (b.stT < 1.6) {
           b.x -= 640 * dt;
           if (b.x < -b.w - 10) b.x = W + 20;
-          if (hit(b, playerBox())) hurtPlayer(3);
+          if (hit(bossBox(b), playerBox())) hurtPlayer(3);
         } else {
           b.x += (b.baseX - b.x) * Math.min(1, dt * 5);
           if (b.stT > 2.4) duckNextState(b);
@@ -721,7 +704,106 @@ export function startDuckGame({
         if (b.stT > 2.2) duckNextState(b);
         break;
     }
-    if (b.st !== 'charge' && hit(b, playerBox())) hurtPlayer(2);
+    animateBike(b, dt);
+    if (b.st !== 'charge' && hit(bossBox(b), playerBox())) hurtPlayer(2);
+  }
+
+  /* ---------- Fases 1 e 2: vida dos pilotos (o mesmo cuidado do Doutor Insano) ---------- */
+  // piscadas, bico abrindo conforme o humor e olhos seguindo a nave
+  function animateLife(b, dt, eye) {
+    b.blinkIn -= dt;
+    if (b.blinkIn <= 0) {
+      b.blink = 0.13;
+      b.blinkIn = Math.random() < 0.25 ? 0.24 : rand(1.6, 4.2);
+    }
+    b.blink = Math.max(0, b.blink - dt);
+    b.jawT += dt;
+    if (b.hurt > 0) b.mood = 'hurt';
+    const target = {
+      grin: Math.sin(b.jawT * 2.3) > 0.88 ? 1 : 0,
+      shout: b.fire > 0 && b.fire < 0.12 ? 2 : Math.sin(b.jawT * 9) > 0.3 ? 1 : 0, // grita a cada disparo
+      laugh: Math.round(1 + Math.sin(b.jawT * 22)), // "QUA-QUA-QUA"
+      scream: 2,
+      grit: 0,
+      hurt: 1,
+    }[b.mood] ?? 0;
+    b.jaw += (target - b.jaw) * Math.min(1, dt * 25);
+    const p = playerCenter();
+    const dx = p.x - eye.x;
+    const dy = p.y - eye.y;
+    b.look = Math.abs(dx) > Math.abs(dy) * 0.5 ? Math.sign(dx) : 0;
+    b.lookY = Math.abs(dy) > 24 ? Math.sign(dy) : 0;
+    b.vy = (b.y - b.prevY) / Math.max(dt, 1e-3);
+    if (Math.abs(b.vy) > 900) b.vy = 0; // teleporte (dash voltando pela direita)
+    b.prevY = b.y;
+    b.recoil = Math.max(0, b.recoil - dt * 12);
+    b.fanA += dt * 24;
+  }
+
+  // Boss 1: disco inclina com o movimento, antena com mola, pato balançando no banco
+  function animateSaucer(b, dt) {
+    const t = b.bob;
+    b.mood = { enter: 'laugh', shoot: 'shout', shield: 'grit', dash: 'scream', minions: 'laugh' }[b.st] || 'grin';
+    const wantTilt = clamp(b.vy * 0.0016, -0.12, 0.12) + (b.st === 'dash' && b.stT > 0.75 ? -0.14 : 0);
+    b.tilt += (wantTilt - b.tilt) * Math.min(1, dt * 6);
+    // antena: mola amortecida, chacoalha quando o disco acelera
+    const acc = -b.vy * 0.02 - (b.st === 'dash' ? 4 : 0);
+    b.antV += (-b.antA * 90 - b.antV * 5 + acc * 0.5) * dt;
+    b.antA = clamp(b.antA + b.antV * dt, -0.5, 0.5);
+    b.duckDy = Math.round(Math.sin(t * 2.6) * 0.9 + (b.mood === 'laugh' ? Math.sin(t * 20) * 0.6 : 0));
+    const look = Math.atan2(playerCenter().y - (b.y + SAUCER.eye[1]), -200);
+    b.headRot += ((b.mood === 'laugh' ? Math.sin(t * 18) * 0.08 : clamp(-(look + Math.PI) * 0.3, -0.12, 0.12) + Math.sin(t * 1.4) * 0.04) - b.headRot) * Math.min(1, dt * 6);
+    animateLife(b, dt, { x: b.x + SAUCER.eye[0], y: b.y + SAUCER.eye[1] });
+    // fumaça do motor de trás
+    b.emit -= dt;
+    if (b.emit <= 0) {
+      b.emit = 0.06;
+      state.particles.push({ x: b.x + SAUCER.exhaust[0] + 2, y: b.y + SAUCER.exhaust[1] + rand(-2, 2), vx: rand(30, 60), vy: rand(-12, 4), life: rand(0.6, 1.1), max: 1.1, c: pick(['#8a8aa0', '#6a6a80', '#b0b0c0']), s: pick([2, 3]), smoke: true });
+    }
+  }
+
+  // Boss 2: moto inclina, pato se equilibra, braço mira na nave, rabo abana
+  function bikeArmAngle(b) {
+    // ângulo para o dedo apontar para a nave
+    const [px, py] = BIKE.pivots.armPoint;
+    const [fx, fy] = BIKE.finger;
+    const base = Math.atan2(fy - py, fx - px);
+    const p = playerCenter();
+    const want = Math.atan2(p.y - (b.y + py), p.x - (b.x + px));
+    let d = want - base;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    return clamp(d, -0.7, 0.7);
+  }
+  function bikeFinger(b) {
+    const [px, py] = BIKE.pivots.armPoint;
+    const [fx, fy] = BIKE.finger;
+    const a = b.arm - b.armKick;
+    const c = Math.cos(a);
+    const s2 = Math.sin(a);
+    return {
+      x: b.x + px + (fx - px) * c - (fy - py) * s2,
+      y: b.y + py + b.duckDy + (fx - px) * s2 + (fy - py) * c,
+    };
+  }
+  function animateBike(b, dt) {
+    const t = b.bob;
+    b.mood = { taunt: 'laugh', triple: 'shout', sweep: 'shout', ring: 'laugh', charge: 'scream', minions: 'laugh' }[b.st] || 'grin';
+    const wantTilt = clamp(b.vy * 0.0015, -0.1, 0.1) + (b.st === 'charge' && b.stT > 0.5 && b.stT < 1.6 ? -0.16 : 0);
+    b.tilt += (wantTilt - b.tilt) * Math.min(1, dt * 6);
+    b.duckDy = Math.round(Math.sin(t * 3.2) * 1.1); // se equilibrando em cima da moto
+    b.arm += (bikeArmAngle(b) - b.arm) * Math.min(1, dt * 7);
+    b.armKick = Math.max(0, b.armKick - dt * 3);
+    if (b.fire > 0 && b.fire < 0.05 && b.st !== 'ring' && b.st !== 'charge') b.armKick = 0.25; // coice do disparo
+    b.tail = Math.sin(t * (b.mood === 'laugh' ? 16 : 7)) * 0.3;
+    b.headRot += ((b.mood === 'laugh' ? Math.sin(t * 18) * 0.07 : Math.sin(t * 1.5) * 0.04) - b.headRot) * Math.min(1, dt * 6);
+    animateLife(b, dt, { x: b.x + BIKE.eyes[1][0], y: b.y + BIKE.eyes[1][1] });
+    b.emit -= dt;
+    if (b.emit <= 0) {
+      b.emit = 0.05;
+      const [ex, ey] = pick(BIKE.exhausts);
+      state.particles.push({ x: b.x + ex + 2, y: b.y + ey, vx: rand(40, 80), vy: rand(-18, 0), life: rand(0.6, 1.1), max: 1.1, c: pick(['#8a8aa0', '#6a6a80', '#b0b0c0']), s: pick([2, 3]), smoke: true });
+      if (Math.random() < 0.5) state.particles.push({ x: b.x + ex + 2, y: b.y + ey, vx: rand(50, 110), vy: rand(-30, 30), life: 0.3, max: 0.3, c: pick(['#ffd23f', '#ff8a1e']), s: 1 });
+    }
   }
 
   /* ---------- Fase 3: CRAZY BOSS — DOUTOR INSANO ---------- */
@@ -746,7 +828,12 @@ export function startDuckGame({
   const crazyBodyBox = (b) => ({ x: b.x + 40, y: b.y + 24, w: 52, h: 120 });
   // garra da frente esticada para a esquerda (soco-foguete)
   const crazyFistBox = (b) => ({ x: b.x - 46, y: b.y + 92, w: 58, h: 28 });
-  const bossBox = (b) => (b.kind === 'crazy' ? crazyHitBox(b) : b);
+  const bossBox = (b) =>
+    b.kind === 'crazy'
+      ? crazyHitBox(b)
+      : b.kind === 'duck'
+        ? { x: b.x + b.w * 0.11, y: b.y + b.h * 0.12, w: b.w * 0.81, h: b.h * 0.83 }
+        : { x: b.x + b.w * 0.03, y: b.y + b.h * 0.06, w: b.w * 0.94, h: b.h * 0.9 };
 
   function spawnBig(type) {
     const y = rand(30, H - 60);
@@ -1212,7 +1299,9 @@ export function startDuckGame({
         // explosões em cima do pato
         d.hurt = Math.random() < 0.4 ? 0.05 : 0;
         d.x += rand(-1.5, 1.5);
-        if (Math.random() < 0.5) boom(d.x + rand(-6, 40), d.y + rand(-10, 44), 8, undefined, 130);
+        if (Math.random() < 0.5) boom(d.x + rand(0, d.w), d.y + rand(0, d.h), 8, undefined, 130);
+        d.mood = 'scream';
+        animateBike(d, dt);
         if (Math.random() < 0.14) sfx('explode');
         shake(3);
       } else if (cs.t < 3.1) {
@@ -1227,11 +1316,11 @@ export function startDuckGame({
         d.y += d.vy * dt;
         d.x -= 14 * dt;
         d.rot -= 7 * dt;
-        if (Math.random() < 0.6) state.particles.push({ x: d.x + 20, y: d.y + 20, vx: rand(-10, 10), vy: -rand(10, 30), life: 0.8, max: 0.8, c: pick(['#6a6a80', '#8a8aa0']), s: 2, smoke: true });
+        if (Math.random() < 0.6) state.particles.push({ x: d.x + d.w / 2, y: d.y + d.h / 2, vx: rand(-10, 10), vy: -rand(10, 30), life: 0.8, max: 0.8, c: pick(['#6a6a80', '#8a8aa0']), s: 2, smoke: true });
       } else if (!cs.landed) {
         cs.landed = true;
         state.boss = null;
-        boom(d.x + 20, H - 6, 80, undefined, 200);
+        boom(d.x + d.w / 2, H - 6, 80, undefined, 200);
         sfx('explode');
         shake(12);
         cs.crazy = newCrazy();
@@ -1350,7 +1439,7 @@ export function startDuckGame({
         } else {
           b.hp -= 1;
           b.hurt = 0.06;
-          if (b.kind === 'crazy') b.recoil = 1;
+          b.recoil = 1;
           state.score += 10;
           boom(s.x, s.y, 2, ['#ffffff', '#ffd23f'], 30);
           sfx('hit');
@@ -1416,7 +1505,7 @@ export function startDuckGame({
         boom(b.x + b.w / 2, b.y + b.h / 2, 90, undefined, 220);
         shake(14);
         state.transition = 0;
-        state.boss = newDuck(b.x + 14, b.y);
+        state.boss = newDuck(b.x + 6, clamp(b.y - 30, 10, H - BIKE.h - 10));
         state.phase = 2;
         audio?.setLayer(2);
         sfx('explode');
@@ -1497,7 +1586,7 @@ export function startDuckGame({
       state.enemyShots = [];
       state.minions.forEach((m) => boom(m.x, m.y, 6));
       state.minions = [];
-      popText(b.x - 20, b.y - 12, 'MECHA DESTRUÍDO!', '#ff8a1e', 2);
+      popText(b.x - 20, b.y - 12, 'DISCO DESTRUÍDO!', '#ff8a1e', 2);
       shake(10);
     } else if (b.kind === 'duck') {
       // o pato leva uma chuva de explosões e cai... e o Doutor Insano se ergue
@@ -1627,45 +1716,201 @@ export function startDuckGame({
         g.font = 'bold 10px monospace';
         g.fillText('!!', 8, b.dashY + b.h / 2 + 4);
       }
-      if (hurt) g.filter = 'brightness(3)';
-      drawSprite(S.mecha2, b.x, b.y + Math.sin(b.bob * 6) * 1);
-      g.filter = 'none';
+      drawSaucer(b);
       if (b.isShielded) {
         g.strokeStyle = `rgba(126,224,255,${0.6 + 0.3 * Math.sin(state.t * 20)})`;
         g.lineWidth = 2;
         g.beginPath();
-        g.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w * 0.75, b.h * 0.85, 0, 0, Math.PI * 2);
+        g.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w * 0.58, b.h * 0.6, 0, 0, Math.PI * 2);
         g.stroke();
         g.fillStyle = 'rgba(126,224,255,0.12)';
         g.fill();
       }
     } else if (b.kind === 'crazy') {
       drawCrazy(b);
-    } else if (b.falling) {
-      // pato caindo, girando (sem a prancha)
-      if (duckImg.complete && duckImg.naturalWidth) {
-        g.save();
-        g.translate(Math.round(b.x + 20), Math.round(b.y + 12));
-        g.rotate(b.rot);
-        if (hurt) g.filter = 'brightness(3)';
-        g.drawImage(duckImg, 0, 4 * 32, 32, 32, -32, -32, 64, 64);
-        g.restore();
-      }
     } else {
-      // pato na prancha voadora (sprite do próprio site, olhando para a esquerda)
-      const y = b.y + Math.sin(b.bob * 5) * 2;
-      g.globalAlpha = 0.6 + 0.4 * Math.sin(state.t * 30);
-      g.fillStyle = '#ff6ad5';
-      g.fillRect(b.x + 4, y + 50, 40, 3);
-      g.globalAlpha = 1;
-      drawSprite(S.board2, b.x - 6, y + 40);
-      if (duckImg.complete && duckImg.naturalWidth) {
-        if (hurt) g.filter = 'brightness(3)';
-        const col = b.st === 'taunt' ? 10 + (Math.floor(state.t * 7) % 2) : 0;
-        g.drawImage(duckImg, col * 32, 4 * 32, 32, 32, Math.round(b.x - 12), Math.round(y - 20), 64, 64);
-        g.filter = 'none';
+      drawBike(b);
+    }
+  }
+
+  // desenha uma camada da folha (opcionalmente girando num pivô)
+  function sheetPart(img, D, name, x, y, pivot = null, ang = 0) {
+    const i = D.idx[name];
+    if (!pivot || !ang) return g.drawImage(img, i * D.w, 0, D.w, D.h, x, y, D.w, D.h);
+    g.save();
+    g.translate(x + pivot[0], y + pivot[1]);
+    g.rotate(ang);
+    g.drawImage(img, i * D.w, 0, D.w, D.h, -pivot[0], -pivot[1], D.w, D.h);
+    g.restore();
+  }
+  // bico/maxilar abrindo: fresta escura + parte de baixo deslocada
+  function drawJaw(img, D, x, y, open) {
+    const o = Math.round(open);
+    if (o > 0) {
+      const [jx, jy, jw] = D.jaw;
+      g.fillStyle = '#4a1608';
+      g.fillRect(x + jx + 1, y + jy - 1, jw - 2, o + 1);
+    }
+    sheetPart(img, D, 'jaw', x, y + o);
+  }
+  // ponto do desenho atual -> pixel exato da tela (com giros/inclinações aplicados)
+  const screenPt = (x, y) => {
+    const p = g.getTransform().transformPoint({ x, y });
+    return { x: Math.round(p.x), y: Math.round(p.y) };
+  };
+  // desenha sem giro: retângulos girados ficam borrados (antialias), olhos precisam ser nítidos
+  const crisp = (fn) => {
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.filter = 'none';
+    fn();
+    g.restore();
+  };
+  // olho em pixel art (em coordenadas de tela): branco, pupila olhando para a nave, piscada
+  function drawEye(b, x, y, size, lid = '#e8a816') {
+    const n = size * 2 + 1;
+    const x0 = x - size;
+    const y0 = y - size;
+    if (b.blink > 0 || b.mood === 'hurt') {
+      g.fillStyle = lid;
+      g.fillRect(x0, y0, n, n);
+      g.fillStyle = '#140c24';
+      g.fillRect(x0, y, n, 1);
+      return;
+    }
+    g.fillStyle = '#ffffff';
+    g.fillRect(x0, y0, n, n);
+    g.fillStyle = '#140c24';
+    // pupila: 1x2 no olho pequeno, 2x2 no grande, sempre dentro do branco
+    const pw = size;
+    const px = clamp(x - Math.floor(pw / 2) + b.look * size, x0, x0 + n - pw);
+    const py = clamp(y - 1 + b.lookY, y0, y0 + n - 2);
+    g.fillRect(px, py, pw, 2);
+  }
+  // hélice girando (espiral de raios dentro de uma elipse)
+  function drawFan(cx, cy, rx, ry, a) {
+    g.strokeStyle = 'rgba(20,12,36,0.75)';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const aa = a + (k * Math.PI) / 3;
+      g.moveTo(cx, cy);
+      g.lineTo(cx + Math.cos(aa) * rx, cy + Math.sin(aa) * ry);
+    }
+    g.stroke();
+  }
+  // chama de motor apontando para a direita (para trás)
+  function drawJet(x, y, len, half) {
+    for (let j = -half; j <= half; j++) {
+      const edge = Math.abs(j) / Math.max(1, half);
+      const L = Math.max(1, Math.round(len * (1 - edge * 0.6) + rand(-2, 2)));
+      for (let i = 0; i < L; i++) {
+        const k = i / L;
+        g.fillStyle = edge < 0.35 && k < 0.4 ? '#ffffff' : k < 0.65 ? '#ffd23f' : k < 0.88 ? '#ff8a1e' : 'rgba(255,59,92,0.6)';
+        g.fillRect(x + i, y + j, 1, 1);
       }
     }
+  }
+
+  /* Boss 1 — Disco Voador do Pato */
+  function drawSaucer(b) {
+    if (!(saucerImg.complete && saucerImg.naturalWidth)) return;
+    const D = SAUCER;
+    const x = Math.round(b.x + b.recoil);
+    const y = Math.round(b.y + Math.sin(b.bob * 2.2) * 2);
+    g.save();
+    g.translate(x + D.w / 2, y + D.h / 2);
+    g.rotate(b.tilt + Math.sin(b.bob * 1.3) * 0.02);
+    g.translate(-(x + D.w / 2), -(y + D.h / 2));
+    const boost = b.st === 'dash' && b.stT > 0.75 ? 2.2 : 1;
+    drawJet(x + D.exhaust[0] - 1, y + D.exhaust[1], (6 + Math.random() * 3) * boost, 2);
+    if (b.hurt > 0) g.filter = 'brightness(2.6)';
+    sheetPart(saucerImg, D, 'hull', x, y);
+    // pato no banco (corpo balança, cabeça vira para a nave)
+    const dy = b.duckDy;
+    sheetPart(saucerImg, D, 'duckBody', x, y + dy);
+    g.save();
+    g.translate(x + D.pivots.head[0], y + D.pivots.head[1] + dy);
+    g.rotate(b.headRot);
+    g.translate(-(x + D.pivots.head[0]), -(y + D.pivots.head[1]));
+    sheetPart(saucerImg, D, 'duckHead', x, y);
+    drawJaw(saucerImg, D, x, y, b.jaw);
+    const eye = screenPt(x + D.eye[0] + 0.5, y + D.eye[1] + 0.5);
+    g.restore();
+    sheetPart(saucerImg, D, 'rim', x, y);
+    sheetPart(saucerImg, D, 'antenna', x, y, D.pivots.antenna, b.antA);
+    g.filter = 'none';
+    crisp(() => drawEye(b, eye.x, eye.y, 1));
+    drawFan(x + D.fan[0], y + D.fan[1], D.fanR, D.fanR, b.fanA);
+    // luzes do casco piscando em sequência
+    D.lights.forEach(([lx, ly], i) => {
+      if (Math.floor(state.t * 4 + i * 0.7) % 3 === 0) {
+        g.fillStyle = i % 2 ? '#ff3b5c' : '#b6ff6a';
+        g.fillRect(x + lx - 1, y + ly - 1, 2, 2);
+      }
+    });
+    // ponta da antena pisca
+    if (Math.floor(state.t * 2) % 2) {
+      const [ax, ay] = D.pivots.antenna;
+      const L = (18 * D.w) / 140; // comprimento da antena
+      const tip = { x: ax + Math.sin(b.antA) * L, y: ay - Math.cos(b.antA) * L };
+      g.fillStyle = 'rgba(255,59,92,0.5)';
+      g.fillRect(Math.round(x + tip.x) - 2, Math.round(y + tip.y) - 2, 4, 4);
+    }
+    g.restore();
+  }
+
+  /* Boss 2 — Pato na Moto-Turbina (também desenha a queda girando antes da fase 3) */
+  function drawBike(b) {
+    if (!(bikeImg.complete && bikeImg.naturalWidth)) return;
+    const D = BIKE;
+    const x = Math.round(b.x + b.recoil);
+    const y = Math.round(b.y + (b.falling ? 0 : Math.sin(b.bob * 2.4) * 2));
+    g.save();
+    g.translate(x + D.w / 2, y + D.h / 2);
+    g.rotate(b.falling ? b.rot : b.tilt + Math.sin(b.bob * 1.1) * 0.02);
+    g.translate(-(x + D.w / 2), -(y + D.h / 2));
+    // aviso da investida
+    if (b.st === 'charge' && b.stT < 0.5 && !b.falling) {
+      g.fillStyle = `rgba(255,59,92,${0.12 + 0.12 * Math.sin(state.t * 40)})`;
+      g.fillRect(-W, b.dashY + 20, W * 3, D.h - 40);
+    }
+    const boost = b.st === 'charge' && b.stT > 0.5 && b.stT < 1.6 ? 2 : 1;
+    if (!b.falling) for (const [ex, ey] of D.exhausts) drawJet(x + ex - 1, y + ey, (5 + Math.random() * 3) * boost, 2);
+    if (b.hurt > 0) g.filter = 'brightness(2.6)';
+    sheetPart(bikeImg, D, 'vehicle', x, y);
+    const dy = b.duckDy;
+    sheetPart(bikeImg, D, 'tail', x, y + dy, D.pivots.tail, b.tail);
+    sheetPart(bikeImg, D, 'duckBody', x, y + dy);
+    g.save();
+    g.translate(x + D.pivots.head[0], y + D.pivots.head[1] + dy);
+    g.rotate(b.headRot);
+    g.translate(-(x + D.pivots.head[0]), -(y + D.pivots.head[1]));
+    sheetPart(bikeImg, D, 'duckHead', x, y);
+    drawJaw(bikeImg, D, x, y, b.jaw);
+    const eyes = D.eyes.map(([ex, ey]) => screenPt(x + ex + 0.5, y + ey + 0.5));
+    crisp(() => {
+      drawEye(b, eyes[0].x, eyes[0].y, 1);
+      drawEye(b, eyes[1].x, eyes[1].y, 2);
+    });
+    g.restore();
+    // braço que aponta: mira na nave e dá coice a cada disparo
+    sheetPart(bikeImg, D, 'armPoint', x, y + dy, D.pivots.armPoint, b.arm - b.armKick);
+    g.filter = 'none';
+    drawFan(x + D.fan[0], y + D.fan[1], D.fanR[0], D.fanR[1], b.fanA);
+    // brilho na ponta do dedo enquanto atira
+    if (b.mood === 'shout' && !b.falling) {
+      const f = bikeFinger(b);
+      g.fillStyle = `rgba(255,106,213,${0.4 + 0.3 * Math.sin(state.t * 40)})`;
+      g.fillRect(Math.round(f.x) - 2 + (x - Math.round(b.x)), Math.round(f.y) - 2 + (y - Math.round(b.y)), 4, 4);
+    }
+    D.lights.forEach(([lx, ly], i) => {
+      if (Math.floor(state.t * 4 + i * 0.9) % 3 === 0) {
+        g.fillStyle = i % 3 === 1 ? '#ff3b5c' : '#b6ff6a';
+        g.fillRect(x + lx - 1, y + ly - 1, 2, 2);
+      }
+    });
+    g.restore();
   }
 
   /* Doutor Insano: boneco em camadas (propulsor, tronco que respira, braços com pivô,
@@ -1803,9 +2048,10 @@ export function startDuckGame({
     g.drawImage(crazyImg, idx.jaw * w, 0, w, h, fx2, fy2 + jaw, w, h);
     // olhos: brancos arregalados, pupilas seguindo a nave, piscadas e olhar de dor
     const squint = b.blink > 0 || b.mood === 'hurt';
-    for (const [ex, ey] of CRAZY.eyes) {
-      const X = fx2 + ex;
-      const Y = fy2 + ey;
+    const eyePts = CRAZY.eyes.map(([ex, ey]) => screenPt(fx2 + ex + 0.5, fy2 + ey + 0.5));
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    for (const { x: X, y: Y } of eyePts) {
       if (squint) {
         g.fillStyle = '#b07a58';
         g.fillRect(X - 2, Y - 1, 5, 2);
@@ -1818,6 +2064,7 @@ export function startDuckGame({
         g.fillRect(X + b.look - (b.look < 0 ? 1 : 0), Y - 1 + (b.lookY > 0 ? 1 : 0), 2, b.lookY ? 1 : 2);
       }
     }
+    g.restore();
     // bolhas
     if (!b.broken) {
       for (const bb of b.bubbles) {
@@ -1928,7 +2175,7 @@ export function startDuckGame({
       const bw = Math.min(180, W * 0.38);
       const x = W - bw - 8;
       g.fillStyle = '#ffffff';
-      const name = { mecha: 'MECHA PATO', duck: 'PATO (FURIOSO)', crazy: 'CRAZY BOSS — DR. INSANO' }[b.kind];
+      const name = { mecha: 'DISCO VOADOR DO PATO', duck: 'PATO NA MOTO-TURBINA', crazy: 'CRAZY BOSS — DR. INSANO' }[b.kind];
       g.fillText(name, x, 4);
       g.fillStyle = '#140c24';
       g.fillRect(x, 13, bw, 6);
