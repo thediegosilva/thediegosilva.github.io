@@ -1,11 +1,12 @@
 import React from 'react';
-import { ArrowUpRight, Dumbbell, Globe, Hammer, LucideIcon, Pizza, ShoppingBag } from 'lucide-react';
+import { ArrowUpRight, Dumbbell, Globe, Hammer, IceCreamCone, LucideIcon, Pizza, ShoppingBag } from 'lucide-react';
 import { sites } from '../data/portfolioData';
 import { Site } from '../types';
 import { Reveal } from '../components/ui/Reveal';
 import { SectionHeader } from '../components/ui/SectionHeader';
 
 const ICONS: Record<string, LucideIcon> = {
+  'ice-cream': IceCreamCone,
   pizza: Pizza,
   dumbbell: Dumbbell,
   'shopping-bag': ShoppingBag,
@@ -13,6 +14,7 @@ const ICONS: Record<string, LucideIcon> = {
 
 /** Cor de cada vaga (RGB para as CSS vars) */
 const ACCENTS: Record<string, string> = {
+  sorveteria: '247 56 121',
   pizzaria: '255 112 67',
   academia: '16 217 160',
   ecommerce: '217 70 239',

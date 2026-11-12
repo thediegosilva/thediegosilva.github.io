@@ -36,7 +36,7 @@ export interface Site {
   /** Segmento do site (ex.: Pizzaria) — aparece como etiqueta no card. */
   segment: string;
   description: string;
-  /** Ícone do card: 'pizza' | 'dumbbell' | 'shopping-bag' */
+  /** Ícone do card: 'ice-cream' | 'pizza' | 'dumbbell' | 'shopping-bag' */
   icon: string;
   /** Link do site publicado. Enquanto vazio, o card mostra "Em breve". */
   url?: string;

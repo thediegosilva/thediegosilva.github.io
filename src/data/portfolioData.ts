@@ -131,11 +131,13 @@ export const projects: Project[] = [
  */
 export const sites: Site[] = [
   {
-    id: 'pizzaria',
-    title: 'Pizzaria',
+    id: 'sorveteria',
+    title: 'Sorveteria Gelatto',
     segment: 'Gastronomia',
-    description: 'Site para pizzaria com cardápio, informações da loja e canais de pedido.',
-    icon: 'pizza',
+    description: 'Site de sorveteria com motion design: vídeos que giram com o scroll, cardápio, unidades e pedido.',
+    icon: 'ice-cream',
+    url: 'https://gelattosorvetes.netlify.app',
+    image: './assets/sites/sorveteria.webp',
   },
   {
     id: 'academia',
