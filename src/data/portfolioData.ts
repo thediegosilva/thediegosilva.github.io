@@ -93,7 +93,7 @@ export const projects: Project[] = [
     title: 'Horizons CRM',
     description: 'CRM comercial multiempresa (SaaS) para pequenas empresas: clientes, pedidos, estoque, financeiro e relatórios em um só lugar.',
     longDescription: 'Aplicação full-stack de ponta a ponta para gestão comercial. Cada empresa opera em um ambiente isolado, convida a equipe com papéis e permissões distintos e acompanha vendas, estoque e fluxo de caixa em um dashboard alimentado diretamente pelo banco de dados. API REST com regras de negócio reais, validação compartilhada entre front e back, testes automatizados e infraestrutura com Docker e CI.',
-    image: './assets/projects/horizons-crm.webp',
+    image: './assets/projects/horizons-crm-capa.webp',
     tags: ['Next.js', 'React', 'TypeScript', 'Express', 'Prisma', 'PostgreSQL', 'Docker'],
     githubUrl: 'https://github.com/thediegosilva/horizons-crm',
     featured: true,
