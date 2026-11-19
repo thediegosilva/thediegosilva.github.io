@@ -87,17 +87,17 @@ export const projects: Project[] = [
     featured: true,
     highlights: ['Isolamento multiempresa', 'Papéis e permissões (RBAC)', 'Pedidos com controle de estoque', 'Financeiro e fluxo de caixa', 'Relatórios com exportação CSV', 'Testes automatizados e CI']
   },
+  // Compartimento 2 — app mobile + web
   {
-    id: 'climaapp',
-    title: 'ClimaApp',
-    description: 'Aplicativo de previsão do tempo com busca por cidades em tempo real e integração com APIs meteorológicas.',
-    longDescription: 'Interface moderna que consulta previsões do tempo mundiais, com geolocalização automática, gráficos de temperatura hora a hora, sensação térmica e índice UV.',
-    image: './assets/projects/climaapp.png',
-    tags: ['JavaScript', 'API', 'CSS', 'React'],
-    liveUrl: 'https://climaapp-demo.vercel.app',
-    githubUrl: 'https://github.com/thediegosilva/climaapp',
+    id: 'agendai',
+    title: 'AgendaÍ',
+    description: 'App de agendamento online para pequenos negócios: o cliente marca o horário pelo celular e o dono gerencia agenda, serviços e faturamento.',
+    longDescription: 'Aplicativo full-stack para barbearias, salões, estúdios e clínicas, com um único código Flutter rodando no Android, na web e no desktop. O cliente busca o estabelecimento, escolhe serviço, dia e horário num calendário e recebe a confirmação na hora. O dono tem um painel com a agenda do dia, faturamento previsto, serviços e horário de funcionamento. A API em NestJS calcula os horários livres com uma função pura e testada, e impede reserva dupla mesmo com acessos simultâneos usando transação com advisory lock no PostgreSQL.',
+    image: './assets/projects/agendai.webp',
+    tags: ['Flutter', 'Dart', 'NestJS', 'TypeScript', 'Prisma', 'PostgreSQL', 'Docker'],
+    githubUrl: 'https://github.com/thediegosilva/agendai',
     featured: true,
-    highlights: ['Geolocalização precisa', 'Previsão de 7 dias', 'Ícones climáticos reativos', 'Detecção de fuso horário']
+    highlights: ['Android, web e desktop', 'Sem reserva dupla (advisory lock)', 'Calendário de horários livres', 'Painel do dono com faturamento', 'Autenticação JWT com perfis', 'Testes unitários da disponibilidade']
   },
   {
     id: 'devtools',
