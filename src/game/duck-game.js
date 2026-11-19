@@ -24,6 +24,7 @@
 import { createDuckAudio } from './duck-audio.js';
 import { CRAZY_DATA } from './crazyboss-data.js';
 import { BOSS1_DATA, BOSS2_DATA } from './boss-data.js';
+import { ROBO_DATA } from './robo-data.js';
 
 /* =========================================================================
    Configuração
@@ -70,6 +71,90 @@ const SCENES = [
   ['#0a0a14', '#22224a', '#5a5aa8'], // 5 espaço profundo
 ];
 const SCENE_TIME = 18; // segundos por cenário
+
+/** Cenários em vídeo (um por fase + o desfecho). Gerados a partir de Fundosdecenario/*.mp4:
+ *  640x348, sem áudio, e os 3 de batalha já com o loop "assado" (os últimos 1,2 s se dissolvem
+ *  no começo dentro do próprio arquivo), então a volta do loop não tem emenda visível.
+ *  0 cidade em chamas • 1 robô gigante • 2 demônio dos lasers • 3 desfecho (toca uma vez) */
+const BG_VIDEOS = ['cenario-1.mp4', 'cenario-2.mp4', 'cenario-3.mp4', 'cenario-final.mp4'];
+const BG_RATE = 0.85; // um pouco mais lento: o cenário "pesa" e não compete com a batalha
+const BG_OVERSCAN = 1.12; // vídeo maior que a tela: sobra para a câmera seguir a nave e tremer
+
+/** Atores do cenário: gigantes em camada própria, separados do vídeo de fundo (profundidade,
+ *  entrada e saída controladas pelo jogo). Os vídeos usam "alpha empilhado": metade de cima = cor,
+ *  metade de baixo = transparência, recortados do fundo branco de Fundosdecenario/ e com o loop
+ *  já assado no arquivo.
+ *  - scene: fase do cenário em que aparece (índice de BG_VIDEOS)
+ *  - height/cx/bottom: tamanho e posição em frações da tela; camK/camYK: quanto mais perto que a cidade
+ *  - enter: 'top' desce do céu e foge para cima; 'walk' entra andando pela esquerda e, na saída,
+ *    fica para trás (a batalha segue e ele escorrega para a esquerda até sair de vista) */
+const ACTORS = [
+  {
+    name: 'robo', file: 'robo.mp4', w: 1280, h: 704, scene: 1,
+    height: 0.84, cx: 0.36, bottom: 1.06, camK: 1.7, camYK: 0.25, enter: 'walk', alpha: 0.95, glow: 0.08,
+    data: ROBO_DATA, // clarões de fogo e pisadas por quadro
+  },
+  {
+    name: 'criatura', file: 'criatura.mp4', w: 840, h: 600, scene: 2,
+    height: 0.66, cx: 0.43, bottom: 0.93, camK: 1.45, camYK: 1.45, enter: 'top', alpha: 0.92, glow: 0.42, bob: true,
+    // onde cada laser toca o chão (fração do quadro) e a cor da luz que ele joga na cidade
+    impacts: [
+      [0.07, 0.9, '200,90,255'],
+      [0.25, 0.99, '255,80,230'],
+      [0.91, 0.94, '110,200,255'],
+    ],
+  },
+];
+
+/** Monta cor + transparência de um vídeo "alpha empilhado" na placa de vídeo (WebGL): rápido mesmo
+ *  em resolução cheia. Devolve null se não houver WebGL (aí o jogo usa o caminho por pixels). */
+function makeAlphaCompositor(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const gl = c.getContext('webgl', { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false });
+  if (!gl) return null;
+  const sh = (type, src) => {
+    const o = gl.createShader(type);
+    gl.shaderSource(o, src);
+    gl.compileShader(o);
+    return o;
+  };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, 'attribute vec2 p;varying vec2 v;void main(){v=vec2(p.x*.5+.5,.5-p.y*.5);gl_Position=vec4(p,0.,1.);}'));
+  gl.attachShader(
+    prog,
+    sh(
+      gl.FRAGMENT_SHADER,
+      `precision mediump float;uniform sampler2D t;varying vec2 v;
+       void main(){float e=.5/${h * 2}.;vec3 c=texture2D(t,vec2(v.x,min(v.y*.5,.5-e))).rgb;
+       float a=texture2D(t,vec2(v.x,max(.5+v.y*.5,.5+e))).g;a=a<.04?0.:a;gl_FragColor=vec4(c*a,a);}`,
+    ),
+  );
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+  gl.useProgram(prog);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'p');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.viewport(0, 0, w, h);
+  return {
+    canvas: c,
+    draw(video) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    },
+  };
+}
 
 /* =========================================================================
    Pixel art (matrizes -> canvas)
@@ -141,6 +226,12 @@ function buildSprites() {
     pilot: sprite(SHIP_ROWS.map((r, y) => [...r].map((ch, x) => (PILOT_AT(x, y) ? ch : '.')).join('')), SHIP_PAL),
     shot: sprite(['wccc', 'wccc'], PAL),
     egg: sprite(['.okko.', 'okeKko', 'okkkKo', 'okkkKo', 'okkKKo', '.oKKo.'], PAL),
+    // tiro do Disco: bola de fogo (3 quadros que tremulam; o rastro é desenhado no jogo)
+    fireball: [
+      sprite(['.rOOr.', 'rOyyOr', 'OywwyO', 'OywwyO', 'rOyyOr', '.rOOr.'], PAL),
+      sprite(['..rOr.', 'rOyyOr', 'OyywyO', 'OywwyO', 'rOyOOr', '.rOrR.'], PAL),
+      sprite(['.Orr..', 'rOyyOr', 'OywyyO', 'OywwyO', 'OOyyOr', '.rOOr.'], PAL),
+    ],
     laser: sprite(['wpppPP'], PAL),
     minion: [
       sprite([
@@ -258,6 +349,8 @@ export function startDuckGame({
   duckSpriteUrl,
   bossSpriteUrl = `${import.meta.env?.BASE_URL ?? './'}assets/pato/crazyboss.png`,
   musicUrls = ['boss2.mp3', 'boss2.mp3', 'boss3.mp3'].map((f) => `${import.meta.env?.BASE_URL ?? './'}assets/pato/${f}`),
+  bgVideoUrls = BG_VIDEOS.map((f) => `${import.meta.env?.BASE_URL ?? './'}assets/pato/${f}`),
+  actorUrls = ACTORS.map((a) => `${import.meta.env?.BASE_URL ?? './'}assets/pato/${a.file}`),
   onExit,
 } = {}) {
   const ctrl = new AbortController();
@@ -296,7 +389,10 @@ export function startDuckGame({
   wrap.setAttribute('role', 'application');
   wrap.setAttribute('aria-label', 'Minigame: batalha contra o Mecha Pato, o Pato e o Doutor Insano. Aperte Escape para sair e M para ligar ou desligar o som.');
   wrap.innerHTML = `
-    <canvas class="duck-game__canvas"></canvas>
+    <div class="duck-game__stage">
+      <canvas class="duck-game__bg" aria-hidden="true"></canvas>
+      <canvas class="duck-game__canvas"></canvas>
+    </div>
     <button type="button" class="duck-game__exit">ESC — Sair da Batalha</button>
     <button type="button" class="duck-game__sound" aria-pressed="true"></button>
     <div class="duck-game__end" hidden>
@@ -312,8 +408,12 @@ export function startDuckGame({
     <p class="duck-game__hint">${touch ? 'Arraste o dedo para mover • tiro automático' : 'Mouse move a nave • clique ou Espaço atira • M som • ESC sai'}</p>
     <p class="duck-game__rotate">↻ Gire o celular para jogar melhor</p>`;
   document.body.appendChild(wrap);
-  const canvas = wrap.querySelector('canvas');
+  const canvas = wrap.querySelector('.duck-game__canvas');
   const g = canvas.getContext('2d');
+  // cenário em camada própria, na resolução real da tela (o jogo continua em pixel art por cima)
+  const bgCanvas = wrap.querySelector('.duck-game__bg');
+  const bx = bgCanvas.getContext('2d', { alpha: false });
+  let bgK = 1; // pixels do cenário por pixel de jogo
   const exitBtn = wrap.querySelector('.duck-game__exit');
   const endBox = wrap.querySelector('.duck-game__end');
   const soundBtn = wrap.querySelector('.duck-game__sound');
@@ -361,6 +461,161 @@ export function startDuckGame({
     return im;
   });
 
+  /* ---------- cenários em vídeo: desenhados no canvas, atrás de tudo ---------- */
+  const bgVids = bgVideoUrls.map((src, i) => {
+    const v = document.createElement('video');
+    v.className = 'duck-game__bgvid';
+    v.setAttribute('aria-hidden', 'true');
+    v.muted = true;
+    v.defaultMuted = true;
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.setAttribute('muted', '');
+    v.preload = i < 2 ? 'auto' : 'metadata'; // as fases seguintes baixam quando a anterior começa
+    v.loop = i < 3; // o desfecho toca uma vez e para no último quadro
+    v.src = src;
+    wrap.appendChild(v);
+    return v;
+  });
+  // atores: vídeo com alpha empilhado -> montado num canvas transparente a cada quadro novo
+  const actors = ACTORS.map((cfg, i) => {
+    const v = document.createElement('video');
+    v.className = 'duck-game__bgvid';
+    v.setAttribute('aria-hidden', 'true');
+    v.muted = true;
+    v.defaultMuted = true;
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.setAttribute('muted', '');
+    v.preload = 'metadata'; // baixa de verdade só quando a fase anterior começa (warmScene)
+    v.loop = true;
+    v.src = actorUrls[i];
+    wrap.appendChild(v);
+    const gl = makeAlphaCompositor(cfg.w, cfg.h);
+    // caminho reserva (sem WebGL): monta pixel a pixel, em meia resolução para não travar
+    const fw = gl ? 1 : Math.round(cfg.w / 2);
+    const fh = gl ? 1 : Math.round(cfg.h / 2);
+    const src = document.createElement('canvas');
+    src.width = fw;
+    src.height = fh * 2;
+    const out = document.createElement('canvas');
+    out.width = fw;
+    out.height = fh;
+    const outG = out.getContext('2d');
+    // vis 0..1 (entrada/saída); leaving = saindo (lado oposto à entrada); frame = quadro do loop
+    return { cfg, v, gl, fw, fh, src, srcG: src.getContext('2d', { willReadFrequently: true }), out, outG, img: null, vis: 0, gone: false, leaving: false, leave: 0, lastT: -1, ready: false, frame: -1 };
+  });
+  const actorVids = actors.map((a) => a.v);
+  const actorByName = Object.fromEntries(actors.map((a) => [a.cfg.name, a]));
+  function updateActors(dt) {
+    for (const a of actors) {
+      const want = bg.cur === a.cfg.scene && !a.gone;
+      if (want && a.vis <= 0) {
+        a.leaving = false;
+        a.leave = 0;
+      }
+      if (!want && a.vis > 0) a.leaving = true;
+      if (a.leaving && a.cfg.enter === 'walk') {
+        // fica para trás: continua andando enquanto escorrega para fora da vista, sem sumir no meio
+        a.leave = Math.min(1, a.leave + dt / 4.2);
+        if (a.leave >= 1) a.vis = 0;
+      } else a.vis = want ? Math.min(1, a.vis + dt * 0.45) : Math.max(0, a.vis - dt * 0.6);
+      if (a.vis > 0 && a.v.paused) {
+        a.v.playbackRate = BG_RATE;
+        a.v.play()?.catch?.(() => {});
+      } else if (a.vis <= 0 && !a.v.paused) a.v.pause();
+      // pisadas sincronizadas com o vídeo: o chão treme no quadro exato em que o pé bate
+      const D = a.cfg.data;
+      if (D && a.vis > 0 && a.ready) {
+        const f = Math.floor(a.v.currentTime * D.fps) % D.frames;
+        if (a.frame >= 0 && f !== a.frame) {
+          for (const st of D.steps) {
+            const crossed = f > a.frame ? st > a.frame && st <= f : st > a.frame || st <= f;
+            if (crossed) shake(1.6 * a.vis);
+          }
+        }
+        a.frame = f;
+      }
+    }
+  }
+  function refreshActor(a) {
+    const { v, cfg } = a;
+    if (!(v.readyState >= 2 && v.videoWidth)) return a.ready;
+    if (v.currentTime === a.lastT && a.ready) return true; // só remonta quando chega quadro novo
+    a.lastT = v.currentTime;
+    if (a.gl) {
+      a.gl.draw(v);
+      a.ready = true;
+      return true;
+    }
+    a.img ??= a.outG.createImageData(a.fw, a.fh);
+    a.srcG.drawImage(v, 0, 0, a.fw, a.fh * 2);
+    const d = a.srcG.getImageData(0, 0, a.fw, a.fh * 2).data;
+    const o = a.img.data;
+    const half = a.fw * a.fh * 4;
+    for (let i = 0; i < half; i += 4) {
+      o[i] = d[i];
+      o[i + 1] = d[i + 1];
+      o[i + 2] = d[i + 2];
+      const al = d[half + i + 1];
+      o[i + 3] = al < 10 ? 0 : al; // corta o chiado da compressão no alpha
+    }
+    a.outG.putImageData(a.img, 0, 0);
+    a.ready = true;
+    return true;
+  }
+
+  // cur = cenário atual; prev = o que está saindo durante a fusão (mix 0 -> 1)
+  const bg = { cur: -1, prev: -1, mix: 1, fade: 0, camX: 0, camY: 0 };
+  const vidReady = (v) => v && v.readyState >= 2 && v.videoWidth > 0;
+  function playVid(i) {
+    const v = bgVids[i];
+    if (!v) return;
+    v.playbackRate = i === 3 ? 1 : BG_RATE;
+    v.play()?.catch?.(() => {});
+  }
+  // deixa pronto o cenário (e o gigante) da próxima fase enquanto a atual acontece
+  function warmScene(i) {
+    const v = bgVids[i];
+    if (v && v.preload !== 'auto') v.preload = 'auto';
+    for (const a of actors) if (a.cfg.scene === i && a.v.preload !== 'auto') a.v.preload = 'auto';
+  }
+  function setScene(i, fade = 0) {
+    if (i === bg.cur) return;
+    warmScene(i);
+    warmScene(i + 1);
+    bg.prev = fade && bg.cur >= 0 ? bg.cur : -1;
+    bg.cur = i;
+    bg.fade = fade;
+    bg.mix = bg.prev >= 0 ? 0 : 1;
+    const v = bgVids[i];
+    if (v) {
+      try {
+        v.currentTime = 0;
+      } catch {
+        /* ainda sem metadados */
+      }
+    }
+    playVid(i);
+    bgVids.forEach((o, k) => k !== bg.cur && k !== bg.prev && o.pause());
+  }
+  function updateScene(dt) {
+    if (bg.prev >= 0) {
+      bg.mix = Math.min(1, bg.mix + dt / bg.fade);
+      if (bg.mix >= 1) {
+        bgVids[bg.prev]?.pause();
+        bg.prev = -1;
+      }
+    }
+    // a câmera do cenário acompanha a nave devagar (parallax): parece um mundo, não um papel de parede
+    const p = state.player;
+    const tx = -((p.x + 9) / W - 0.5) * 1.1 + Math.sin(state.t * 0.21) * 0.12;
+    const ty = -((p.y + 5) / H - 0.5) * 0.9 + Math.sin(state.t * 0.17 + 1) * 0.1;
+    const k = Math.min(1, dt * 1.6);
+    bg.camX += (clamp(tx, -1, 1) - bg.camX) * k;
+    bg.camY += (clamp(ty, -1, 1) - bg.camY) * k;
+  }
+
   /* ---------- tamanho: altura fixa em pixels de jogo, largura acompanha a tela ---------- */
   let W = 480;
   let scale = 1;
@@ -374,6 +629,15 @@ export function startDuckGame({
     canvas.style.width = `${Math.floor(W * scale)}px`;
     canvas.style.height = `${Math.floor(H * scale)}px`;
     g.imageSmoothingEnabled = false;
+    // cenário: tamanho real em pixels do aparelho (limitado para não pesar em telas 4K/celulares 3x)
+    const cssW = Math.floor(W * scale);
+    const cssH = Math.floor(H * scale);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    bgK = Math.min((cssH * dpr) / H, 1440 / H, 2560 / W);
+    bgCanvas.width = Math.round(W * bgK);
+    bgCanvas.height = Math.round(H * bgK);
+    bgCanvas.style.width = `${cssW}px`;
+    bgCanvas.style.height = `${cssH}px`;
   }
   resize();
   on(window, 'resize', resize);
@@ -423,6 +687,10 @@ export function startDuckGame({
   on(wrap.querySelector('[data-leave]'), 'click', () => cleanup(state.result || 'saiu'));
   on(wrap.querySelector('[data-again]'), 'click', () => {
     endBox.hidden = true;
+    if (state.outro) {
+      running = false;
+      cancelAnimationFrame(raf);
+    }
     reset();
     audio?.startMusic();
     loopStart();
@@ -453,7 +721,18 @@ export function startDuckGame({
       transition: 0,
       cutscene: null, // queda do pato / surgimento e morte do Doutor Insano
       banner: null,
+      lights: [], // clarões das explosões que iluminam o cenário
+      white: 0, // clarão branco (golpe final)
+      outro: false,
     };
+    bg.cur = -1;
+    setScene(0);
+    for (const a of actors) {
+      a.vis = 0;
+      a.gone = false;
+      a.leaving = false;
+      a.leave = 0;
+    }
     audio?.setLayer(1);
     input.x = W * 0.2;
     input.y = H / 2;
@@ -496,12 +775,19 @@ export function startDuckGame({
 
   /* ---------- efeitos ---------- */
   const boom = (x, y, n = 14, colors = ['#ffd23f', '#ff8a1e', '#ff3b5c', '#ffffff'], spd = 90) => {
+    if (n >= 8) addLight(x, y, 18 + n * 1.5, Math.min(1, 0.35 + n / 60), 0.25 + Math.min(0.6, n / 150), colors[0]);
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const v = rand(spd * 0.3, spd);
       state.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.3, 0.8), max: 0.8, c: pick(colors), s: Math.random() < 0.3 ? 2 : 1 });
     }
   };
+  // luz no cenário: a explosão "acende" os prédios atrás dela
+  function addLight(x, y, r, k, life, c) {
+    const L = state.lights;
+    L.push({ x, y, r, k, life, max: life, c: c && c.startsWith('#7e') ? '126,224,255' : '255,150,60' });
+    if (L.length > 24) L.shift();
+  }
   const popText = (x, y, txt, c = '#ffffff', life = 1.2) => state.texts.push({ x, y, txt, c, life, max: life });
   const shake = (v) => (state.shake = reduced ? 0 : Math.max(state.shake, v));
 
@@ -1341,6 +1627,7 @@ export function startDuckGame({
         cs.rising = true;
         state.boss = cs.crazy;
         sfx('rise');
+        setScene(2, 1.6); // o céu se abre no roxo do demônio junto com o Doutor
         audio?.setLayer(3); // a música do Doutor entra junto com ele
         state.banner = { title: 'CRAZY BOSS', sub: 'DOUTOR INSANO', t: 0, life: 3.8 };
       }
@@ -1409,6 +1696,8 @@ export function startDuckGame({
         boom(b.x + b.w / 2, b.y + b.h / 2, 120, undefined, 260);
         shake(16);
         sfx('explode');
+        state.white = 1;
+        setScene(3, 0.5); // clarão branco -> a cidade em silêncio depois da batalha
         const p = state.player;
         state.score += 8000 + p.hp * 400 + Math.max(0, Math.round(420 - state.t)) * 20;
         state.boss = null;
@@ -1426,6 +1715,9 @@ export function startDuckGame({
 
     // parallax
     PARALLAX_LAYERS.forEach((l, i) => (state.bgX[i] = (state.bgX[i] + l.speed * dt) % 100000));
+    updateScene(dt);
+    updateActors(dt);
+    if (p.muzzle > 0.05 && Math.random() < 0.5) addLight(p.x + 20, p.y + 5, 16, 0.25, 0.08, '#7ee0ff');
 
     // jogador segue o cursor exatamente (dentro da tela)
     const lastX = p.x;
@@ -1568,6 +1860,10 @@ export function startDuckGame({
       s.y += s.vy * dt;
       if (s.kind) s.t += dt;
       if (s.kind === 'bubble') s.y += Math.sin(s.t * 9) * 22 * dt; // bolha balança
+      if (s.sprite === 'egg' && Math.random() < 0.3) {
+        // faíscas soltando da bola de fogo
+        state.particles.push({ x: s.x + 3 + rand(-2, 2), y: s.y + 3 + rand(-2, 2), vx: -s.vx * 0.15 + rand(-12, 12), vy: -s.vy * 0.15 - rand(8, 26), life: 0.35, max: 0.35, c: pick(['#ffd23f', '#ff8a1e', '#ff5a1e']), s: 1, smoke: true });
+      }
       if (s.kind === 'bigOrb' && s.t > 1.1) {
         // esfera grande explode em 10 menores
         const off = Math.random();
@@ -1608,6 +1904,9 @@ export function startDuckGame({
     state.texts = state.texts.filter((tx) => tx.life > 0);
     state.shake = Math.max(0, state.shake - dt * 18);
     state.flash = Math.max(0, state.flash - dt);
+    state.white = Math.max(0, state.white - dt * 1.4);
+    for (const L of state.lights) L.life -= dt;
+    state.lights = state.lights.filter((L) => L.life > 0);
   }
 
   function bossDown() {
@@ -1615,6 +1914,7 @@ export function startDuckGame({
     if (b.kind === 'mecha') {
       state.score += 2000;
       state.transition = 2.2;
+      setScene(1, 2.2); // a cidade dá lugar ao robô gigante enquanto o disco explode
       state.enemyShots = [];
       state.minions.forEach((m) => boom(m.x, m.y, 6));
       state.minions = [];
@@ -1627,6 +1927,7 @@ export function startDuckGame({
       sfx('explode');
       state.score += 3000;
       popText(b.x - 20, b.y - 12, 'PATO DERRUBADO!', '#ff8a1e', 2);
+      actorByName.robo.gone = true; // sem o pato, o robô segue caminho e sai pela direita
       clearArena();
       state.cutscene = { kind: 'duckFall', t: 0, duck: b };
     } else {
@@ -1634,6 +1935,7 @@ export function startDuckGame({
       popText(b.x, b.y - 4, 'NÃÃÃÃO! MEU AQUÁRIO!', '#7ee0ff', 2.2);
       clearArena();
       b.beam = null;
+      actorByName.criatura.gone = true; // sem o Doutor, a criatura recua para o céu
       state.cutscene = { kind: 'crazyDeath', t: 0, crazy: b };
     }
   }
@@ -1647,6 +1949,12 @@ export function startDuckGame({
 
   /* ---------- desenho ---------- */
   function drawBackground() {
+    // cenário em vídeo na camada de alta resolução; o canvas do jogo fica transparente atrás dos sprites
+    bx.setTransform(bgK, 0, 0, bgK, shakeX * bgK, shakeY * bgK);
+    if (drawVideoScene()) return;
+    bx.setTransform(1, 0, 0, 1, 0, 0);
+    bx.fillStyle = '#0a0614';
+    bx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
     // cenários 1→5→1: céu muda de paleta continuamente
     const total = SCENES.length * SCENE_TIME;
     const tt = (state.t % total) / SCENE_TIME;
@@ -1674,6 +1982,119 @@ export function startDuckGame({
       }
       drawLayer(li, x);
     });
+  }
+
+  function drawVideo(v, alpha) {
+    const vw = v.videoWidth;
+    const vh = v.videoHeight;
+    const sc = Math.max(W / vw, H / vh) * BG_OVERSCAN;
+    const dw = vw * sc;
+    const dh = vh * sc;
+    const x = (W - dw) / 2 + (bg.camX * (dw - W)) / 2;
+    const y = (H - dh) / 2 + (bg.camY * (dh - H)) / 2;
+    bx.globalAlpha = alpha;
+    bx.imageSmoothingEnabled = true;
+    bx.imageSmoothingQuality = 'high';
+    bx.drawImage(v, x, y, dw, dh);
+    bx.globalAlpha = 1;
+  }
+  /** desenha o cenário em vídeo; devolve false se nenhum vídeo carregou (usa o desenho provisório) */
+  function drawVideoScene() {
+    const cur = bgVids[bg.cur];
+    const prev = bg.prev >= 0 ? bgVids[bg.prev] : null;
+    const curOk = vidReady(cur);
+    const prevOk = vidReady(prev);
+    if (!curOk && !prevOk) return false;
+    if (prevOk) drawVideo(prev, 1);
+    if (curOk) drawVideo(cur, prevOk ? bg.mix : 1);
+    const actorLights = drawActors(); // antes da gradação: recebem a mesma luz do cenário
+
+    // gradação: escurece e esfria o vídeo para tiros e chefes saltarem à frente
+    // (o desfecho fica mais claro: é cinema, não batalha)
+    const dark = (i) => (i === 3 ? 0.4 : 1);
+    const d = prevOk && curOk ? dark(bg.prev) + (dark(bg.cur) - dark(bg.prev)) * bg.mix : dark(curOk ? bg.cur : bg.prev);
+    const gr = bx.createLinearGradient(0, 0, 0, H);
+    gr.addColorStop(0, `rgba(8,4,24,${0.55 * d})`);
+    gr.addColorStop(0.45, `rgba(8,4,24,${0.36 * d})`);
+    gr.addColorStop(1, `rgba(8,4,24,${0.5 * d})`);
+    bx.fillStyle = gr;
+    bx.fillRect(0, 0, W, H);
+    const vg = bx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, W * 0.75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, `rgba(0,0,0,${0.55 * d})`);
+    bx.fillStyle = vg;
+    bx.fillRect(0, 0, W, H);
+
+    // clarões das explosões iluminam o cenário no mesmo ponto e no mesmo instante
+    if (state.lights.length) {
+      bx.globalCompositeOperation = 'lighter';
+      for (const L of state.lights) {
+        const a = L.k * (L.life / L.max) * 0.55;
+        const rg = bx.createRadialGradient(L.x, L.y, 0, L.x, L.y, L.r);
+        rg.addColorStop(0, `rgba(${L.c},${a})`);
+        rg.addColorStop(1, `rgba(${L.c},0)`);
+        bx.fillStyle = rg;
+        bx.fillRect(L.x - L.r, L.y - L.r, L.r * 2, L.r * 2);
+      }
+      bx.globalCompositeOperation = 'source-over';
+    }
+    // luz dos atores: lasers da criatura na rua, fogo do robô na cidade (quadro a quadro)
+    if (actorLights.length) {
+      bx.globalCompositeOperation = 'lighter';
+      for (const [x, y, c, a, r] of actorLights) {
+        if (a <= 0.01) continue;
+        const rg = bx.createRadialGradient(x, y, 0, x, y, r);
+        rg.addColorStop(0, `rgba(${c},${a})`);
+        rg.addColorStop(1, `rgba(${c},0)`);
+        bx.fillStyle = rg;
+        bx.fillRect(x - r, y - r, r * 2, r * 2);
+      }
+      bx.globalCompositeOperation = 'source-over';
+    }
+    return true;
+  }
+
+  /** atores em camada própria: mais perto que a cidade (parallax maior), entram e saem com a fase */
+  function drawActors() {
+    const lights = [];
+    for (const a of actors) {
+      if (a.vis <= 0 || !refreshActor(a)) continue;
+      const c = a.cfg;
+      const e = a.leaving && c.enter === 'walk' ? 1 : a.vis * a.vis * (3 - 2 * a.vis); // suaviza entrada e saída
+      const h = H * c.height;
+      const w = (h * c.w) / c.h;
+      const cam = (BG_OVERSCAN - 1) * 0.5;
+      let x = W * c.cx - w / 2 + bg.camX * W * cam * c.camK;
+      let y = H * c.bottom - h + bg.camY * H * cam * c.camYK;
+      if (c.bob) {
+        x += Math.sin(state.t * 0.37) * 5;
+        y += Math.sin(state.t * 1.1) * 2.5;
+      }
+      if (c.enter === 'top') y -= (1 - e) * H * 0.45;
+      else if (a.leaving) {
+        // ficando para trás: arranca devagar e segue em ritmo constante até sair pela esquerda
+        const L = a.leave;
+        const run = L < 0.2 ? (L * L) / 0.4 : L - 0.1;
+        x -= (run / 0.9) * (W * c.cx + w / 2 + 10);
+      } else x -= (1 - e) * W * 0.55; // entra andando pela esquerda
+      bx.imageSmoothingEnabled = true;
+      bx.globalAlpha = c.alpha * e;
+      bx.drawImage(a.gl ? a.gl.canvas : a.out, x, y, w, h);
+      bx.globalCompositeOperation = 'lighter'; // segunda passada: fogo, lasers e olhos brilham de verdade
+      bx.globalAlpha = c.glow * e;
+      bx.drawImage(a.gl ? a.gl.canvas : a.out, x, y, w, h);
+      bx.globalCompositeOperation = 'source-over';
+      bx.globalAlpha = 1;
+      if (c.impacts) {
+        const flick = 0.75 + Math.sin(state.t * 31) * 0.15 + Math.random() * 0.1;
+        for (const [fx, fy, col] of c.impacts) lights.push([x + fx * w, y + fy * h, col, 0.6 * e * e * flick, 30 + Math.sin(state.t * 23 + fx * 9) * 4]);
+      }
+      if (c.data && a.frame >= 0) {
+        const [fx, fy, k] = c.data.fire[a.frame];
+        lights.push([x + fx * w, y + fy * h, '255,140,50', 0.5 * k * e, 50 + 40 * k]);
+      }
+    }
+    return lights;
   }
 
   // desenhos provisórios das camadas (trocáveis por imagens)
@@ -1726,6 +2147,39 @@ export function startDuckGame({
   }
   function tileShapes(x, period, draw) {
     for (let ox = -(x % period); ox < W + period; ox += period) draw(Math.round(ox));
+  }
+
+  /** tiro do Disco: bola de fogo com rastro de chamas apontado para trás do movimento */
+  function drawFireball(s) {
+    const seed = s.seed ?? (s.seed = Math.random() * 100);
+    const t = state.t * 18 + seed;
+    const cx = s.x + 3;
+    const cy = s.y + 3;
+    const sp = Math.hypot(s.vx, s.vy) || 1;
+    const dx = -s.vx / sp;
+    const dy = -s.vy / sp;
+    // brilho aditivo pulsando (também clareia o cenário em volta)
+    g.globalCompositeOperation = 'lighter';
+    const r = 9 + Math.sin(t * 1.7) * 1.5;
+    const gl = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+    gl.addColorStop(0, 'rgba(255,170,60,0.55)');
+    gl.addColorStop(1, 'rgba(255,80,20,0)');
+    g.fillStyle = gl;
+    g.fillRect(cx - r, cy - r, r * 2, r * 2);
+    g.globalCompositeOperation = 'source-over';
+    // rastro: do amarelo ao vermelho escuro, afinando e ondulando
+    const TRAIL = ['#ffd23f', '#ffb02a', '#ff8a1e', '#ff5a1e', '#d8301e', '#8a1a12'];
+    for (let i = TRAIL.length; i >= 1; i--) {
+      const wob = Math.sin(t + i * 1.3) * (0.4 + i * 0.25);
+      const px = cx + dx * i * 2.3 - dy * wob;
+      const py = cy + dy * i * 2.3 + dx * wob;
+      const sz = Math.max(1, Math.round(4.2 - i * 0.55));
+      g.globalAlpha = 1 - i / (TRAIL.length + 1.5);
+      g.fillStyle = TRAIL[i - 1];
+      g.fillRect(Math.round(px - sz / 2), Math.round(py - sz / 2), sz, sz);
+    }
+    g.globalAlpha = 1;
+    drawSprite(S.fireball[Math.floor(t / 2) % 3], s.x, s.y);
   }
 
   function drawSprite(img, x, y, flipX = false) {
@@ -2283,9 +2737,14 @@ export function startDuckGame({
     g.fillText(`FASE ${state.phase}/3`, W / 2 - 14, 15);
   }
 
+  let shakeX = 0;
+  let shakeY = 0;
   function draw() {
+    g.clearRect(0, 0, W, H);
     g.save();
-    if (state.shake) g.translate(Math.round(rand(-state.shake, state.shake)), Math.round(rand(-state.shake, state.shake)));
+    shakeX = state.shake ? Math.round(rand(-state.shake, state.shake)) : 0;
+    shakeY = state.shake ? Math.round(rand(-state.shake, state.shake)) : 0;
+    g.translate(shakeX, shakeY);
     drawBackground();
 
     const b = state.boss;
@@ -2314,7 +2773,7 @@ export function startDuckGame({
         g.scale(-1, 1);
         g.drawImage(S[s.sprite], -3, 0);
         g.restore();
-      } else drawSprite(S.egg, s.x, s.y);
+      } else drawFireball(s);
     }
     for (const s of state.shots) drawSprite(S.shot, s.x, s.y);
 
@@ -2345,7 +2804,11 @@ export function startDuckGame({
       g.fillStyle = `rgba(255,59,92,${state.flash})`;
       g.fillRect(0, 0, W, H);
     }
-    drawHUD();
+    if (state.white) {
+      g.fillStyle = `rgba(255,255,255,${state.white})`;
+      g.fillRect(0, 0, W, H);
+    }
+    if (!state.outro) drawHUD();
   }
 
   /* ---------- fim de jogo ---------- */
@@ -2356,7 +2819,7 @@ export function startDuckGame({
     const isRecord = state.score > (record.score || 0);
     if (isRecord) saveRecord({ score: state.score, date: Date.now() });
     // mostra mais alguns quadros da explosão antes do placar
-    state.endIn = 1.2;
+    state.endIn = result === 'vitoria' ? 3 : 1.2; // na vitória, o desfecho respira antes do placar
     audio?.stopMusic(0.5);
     sfx(result === 'vitoria' ? 'victory' : 'defeat');
     endBox.querySelector('.duck-game__title').textContent = result === 'vitoria' ? 'VITÓRIA!' : 'GAME OVER';
@@ -2386,6 +2849,13 @@ export function startDuckGame({
     last = now;
     acc += elapsed;
     let steps = 0;
+    if (state.outro) {
+      // placar da vitória aberto: o desfecho segue tocando atrás dele
+      acc = 0;
+      updateScene(elapsed);
+      draw();
+      return;
+    }
     if (state.result) {
       state.endIn -= elapsed;
       while (acc >= STEP && steps++ < MAX_STEPS) {
@@ -2394,9 +2864,18 @@ export function startDuckGame({
       }
       draw();
       if (state.endIn <= 0) {
+        endBox.hidden = false;
+        if (state.result === 'vitoria') {
+          state.outro = true;
+          state.particles = [];
+          state.texts = [];
+          state.lights = [];
+          endBox.querySelector('[data-again]').focus({ preventScroll: true });
+          return;
+        }
         running = false;
         cancelAnimationFrame(raf);
-        endBox.hidden = false;
+        [...bgVids, ...actorVids].forEach((v) => v.pause());
         endBox.querySelector('[data-again]').focus({ preventScroll: true });
       }
       return;
@@ -2421,9 +2900,14 @@ export function startDuckGame({
       running = false;
       cancelAnimationFrame(raf);
       audio?.pause();
+      [...bgVids, ...actorVids].forEach((v) => v.pause());
     } else {
       audio?.resume();
-      if (!state.result && endBox.hidden) loopStart();
+      if ((!state.result && endBox.hidden) || state.outro) {
+        if (bg.cur >= 0 && !(bg.cur === 3 && bgVids[3]?.ended)) playVid(bg.cur);
+        if (bg.prev >= 0) playVid(bg.prev);
+        loopStart();
+      }
     }
   });
 
@@ -2436,6 +2920,11 @@ export function startDuckGame({
     cancelAnimationFrame(raf);
     ctrl.abort(); // remove TODOS os listeners registrados pelo jogo
     audio?.close(); // encerra o som (música e efeitos param na hora)
+    [...bgVids, ...actorVids].forEach((v) => {
+      v.pause();
+      v.removeAttribute('src');
+      v.load(); // libera o decodificador de vídeo
+    });
     wrap.remove();
     html.style.overflow = saved.htmlOverflow;
     document.body.style.overflow = saved.bodyOverflow;
@@ -2453,6 +2942,6 @@ export function startDuckGame({
   reset();
   audio?.startMusic();
   loopStart();
-  if (import.meta.env?.DEV) window.__duckGame = { get state() { return state; }, audio, crazyNext: (st) => { const b = state.boss; for (let i = 0; i < 60; i++) { b.last = ""; crazyNextState(b); if (!st || b.st === st) break; } } };
+  if (import.meta.env?.DEV) window.__duckGame = { get state() { return state; }, audio, scene: setScene, bg, actors: actorByName, crazyNext: (st) => { const b = state.boss; for (let i = 0; i < 60; i++) { b.last = ""; crazyNextState(b); if (!st || b.st === st) break; } } };
   return cleanup;
 }

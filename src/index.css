@@ -1299,7 +1299,10 @@
   overscroll-behavior: contain;
 }
 @keyframes duck-game-in { from { opacity: 0; } }
-.duck-game__canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-action: none; }
+.duck-game__stage { position: relative; }
+/* cenário em alta resolução embaixo; o jogo em pixel art (transparente) por cima */
+.duck-game__bg { position: absolute; inset: 0; display: block; pointer-events: none; }
+.duck-game__canvas { position: relative; display: block; image-rendering: pixelated; cursor: crosshair; touch-action: none; }
 .duck-game__exit {
   position: fixed;
   bottom: max(14px, env(safe-area-inset-bottom));
@@ -1428,3 +1431,5 @@ html.pato-quake #root { animation: pato-quake 0.08s linear 8; }
     pointer-events: none;
   }
 }
+/* vídeos dos cenários do minigame: só fonte de quadros para o canvas, nunca aparecem */
+.duck-game__bgvid { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
