@@ -75,19 +75,7 @@ export const skills: Skill[] = [
 ];
 
 export const projects: Project[] = [
-  // Compartimento 1 — projeto principal
-  {
-    id: 'horizons-crm',
-    title: 'Horizons CRM',
-    description: 'CRM comercial multiempresa (SaaS) para pequenas empresas: clientes, pedidos, estoque, financeiro e relatórios em um só lugar.',
-    longDescription: 'Aplicação full-stack de ponta a ponta para gestão comercial. Cada empresa opera em um ambiente isolado, convida a equipe com papéis e permissões distintos e acompanha vendas, estoque e fluxo de caixa em um dashboard alimentado diretamente pelo banco de dados. API REST com regras de negócio reais, validação compartilhada entre front e back, testes automatizados e infraestrutura com Docker e CI.',
-    image: './assets/projects/horizons-crm.webp',
-    tags: ['Next.js', 'React', 'TypeScript', 'Express', 'Prisma', 'PostgreSQL', 'Docker'],
-    githubUrl: 'https://github.com/thediegosilva/horizons-crm',
-    featured: true,
-    highlights: ['Isolamento multiempresa', 'Papéis e permissões (RBAC)', 'Pedidos com controle de estoque', 'Financeiro e fluxo de caixa', 'Relatórios com exportação CSV', 'Testes automatizados e CI']
-  },
-  // Compartimento 2 — app mobile + web
+  // Compartimento 1 — projeto principal (app mobile + web)
   {
     id: 'agendai',
     title: 'AgendaÍ',
@@ -98,6 +86,18 @@ export const projects: Project[] = [
     githubUrl: 'https://github.com/thediegosilva/agendai',
     featured: true,
     highlights: ['Android, web e desktop', 'Sem reserva dupla (advisory lock)', 'Calendário de horários livres', 'Painel do dono com faturamento', 'Autenticação JWT com perfis', 'Testes unitários da disponibilidade']
+  },
+  // Compartimento 2 — CRM full-stack
+  {
+    id: 'horizons-crm',
+    title: 'Horizons CRM',
+    description: 'CRM comercial multiempresa (SaaS) para pequenas empresas: clientes, pedidos, estoque, financeiro e relatórios em um só lugar.',
+    longDescription: 'Aplicação full-stack de ponta a ponta para gestão comercial. Cada empresa opera em um ambiente isolado, convida a equipe com papéis e permissões distintos e acompanha vendas, estoque e fluxo de caixa em um dashboard alimentado diretamente pelo banco de dados. API REST com regras de negócio reais, validação compartilhada entre front e back, testes automatizados e infraestrutura com Docker e CI.',
+    image: './assets/projects/horizons-crm.webp',
+    tags: ['Next.js', 'React', 'TypeScript', 'Express', 'Prisma', 'PostgreSQL', 'Docker'],
+    githubUrl: 'https://github.com/thediegosilva/horizons-crm',
+    featured: true,
+    highlights: ['Isolamento multiempresa', 'Papéis e permissões (RBAC)', 'Pedidos com controle de estoque', 'Financeiro e fluxo de caixa', 'Relatórios com exportação CSV', 'Testes automatizados e CI']
   },
   {
     id: 'devtools',
