@@ -148,10 +148,12 @@ export const sites: Site[] = [
   },
   {
     id: 'ecommerce',
-    title: 'E-commerce',
-    segment: 'Loja virtual',
-    description: 'Loja virtual com vitrine de produtos, carrinho e finalização de compra.',
+    title: 'VÉRTICE',
+    segment: 'E-commerce',
+    description: 'Loja full-stack de moda e tech: busca ao vivo, carrinho, checkout com Stripe, painel admin e modo escuro.',
     icon: 'shopping-bag',
+    url: 'https://lojavertice.netlify.app',
+    image: './assets/sites/vertice.webp',
   },
 ];
 

@@ -17,7 +17,7 @@ const ACCENTS: Record<string, string> = {
   sorveteria: '247 56 121',
   pizzaria: '255 112 67',
   academia: '16 217 160',
-  ecommerce: '217 70 239',
+  ecommerce: '255 77 0', // laranja da VÉRTICE
 };
 
 const host = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/$/, '');
