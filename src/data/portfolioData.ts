@@ -99,6 +99,18 @@ export const projects: Project[] = [
     featured: true,
     highlights: ['Isolamento multiempresa', 'Papéis e permissões (RBAC)', 'Pedidos com controle de estoque', 'Financeiro e fluxo de caixa', 'Relatórios com exportação CSV', 'Testes automatizados e CI']
   },
+  // Compartimento 3 — assistente de voz com IA
+  {
+    id: 'diegovoicecloud',
+    title: 'DiegoVoiceCloud',
+    description: 'Assistente pessoal de voz com IA (Lexy e Diego): conversa em tempo real, acorda pelo nome com a tela apagada e conecta celular e PC com criptografia.',
+    longDescription: 'Aplicativo Flutter para Android, iOS, Linux e Windows. A conversa por voz acontece em tempo real, com cancelamento de eco e interrupção. No Android, a IA acorda ao ouvir o próprio nome mesmo com a tela apagada, com reconhecimento offline (Vosk) em um serviço nativo em Kotlin, e o áudio é roteado como chamada para usar o som e o microfone do fone Bluetooth. Ela vê a câmera ao vivo, analisa fotos da galeria e documentos, controla o PC com confirmação para ações perigosas e conversa com as IAs dos seus outros aparelhos por uma rede própria cifrada com AES-256-GCM. O histórico fica salvo só no aparelho, com conversas fixadas, renomeadas e retomadas.',
+    image: './assets/projects/diegovoicecloud.webp',
+    tags: ['Flutter', 'Dart', 'Kotlin', 'Swift', 'Python', 'IA de voz', 'Criptografia'],
+    githubUrl: 'https://github.com/thediegosilva/DiegoVoiceCloud',
+    featured: true,
+    highlights: ['Voz em tempo real', 'Acorda pelo nome (offline)', 'Fone Bluetooth: som e microfone', 'Câmera, fotos e documentos', 'Aparelhos conectados com AES-256', 'Histórico só no aparelho']
+  },
   {
     id: 'devtools',
     title: 'DevTools',
