@@ -112,18 +112,6 @@ export const projects: Project[] = [
     highlights: ['Voz em tempo real', 'Acorda pelo nome (offline)', 'Fone Bluetooth: som e microfone', 'Câmera, fotos e documentos', 'Aparelhos conectados com AES-256', 'Histórico só no aparelho']
   },
   {
-    id: 'devtools',
-    title: 'DevTools',
-    description: 'Conjunto de scripts e ferramentas para automatizar tarefas do dia a dia no ambiente Linux.',
-    longDescription: 'Suíte de scripts shell/bash e utilitários CLI desenvolvidos para turbinar o fluxo de trabalho de desenvolvedores em distribuições Linux, incluindo backups automáticos, configuração de ambiente e monitoramento.',
-    image: './assets/projects/devtools.png',
-    tags: ['Bash', 'Linux', 'Shell', 'Python'],
-    liveUrl: 'https://github.com/thediegosilva/devtools',
-    githubUrl: 'https://github.com/thediegosilva/devtools',
-    featured: true,
-    highlights: ['CLI interativo', 'Automação de dotfiles', 'Monitoramento de recursos', 'Execução agendada via Cron']
-  },
-  {
     id: 'portfolio',
     title: 'Portfólio',
     description: 'Este site! Um portfólio pessoal e moderno para mostrar meus projetos, habilidades e contatos.',
